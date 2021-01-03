@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>SEPIA Web Audio Processor Test</title>
+
+	<script src="src/visualization/uPlot.iife.min.js"></script>
+	<script src="src/visualization/uPlot-lazy.min.js"></script>
+	<script src="src/visualization/uPlot-lazy-heatmap.min.js"></script>
+	<link rel="stylesheet" href="src/visualization/uPlot.min.css">
+
+	<script src="src/polyfills/audioworklet-polyfill.js"></script>
+	<script type="text/javascript" src="src/processor.js"></script>
+	
+	<style>
+	* {
+		box-sizing: border-box;
+	}
+	html, body {
+		font-family: sans-serif;
+		text-align: center;
+	}
+	#mainView > div {
+		margin: 16px 8px;
+	}
+	button {
+		display: inline-block;
+		margin: 8px;
+	}
+	label, input {
+		margin: 8px;
+	}
+	input.small {
+		width: 72px;
+	}
+	select {
+		height: 21px;
+	}
+	.contorlGroup {
+		display: flex;
+		/*justify-content: center;*/
+		align-items: center;
+		align-content: center;
+		flex-wrap: wrap;
+	}
+	#mainView {
+		display: inline-block;
+		width: 100%;
+		max-width: 1024px;
+		text-align: center;
+		padding: 16px; 
+		margin:0;
+	}
+    #status {
+		display: inline-block;
+		width: 90px;
+		height: 90px;
+		background: #aaa;
+		border-radius: 50%;
+		margin: 8px;
+    }
+	#status.ready {
+		background: #000;
+	}
+	#status.listening {
+		background: #ff3355;
+	}
+	#status.voiceactivity {
+		background: #16abc3;
+	}
+	#status.insequence {
+		background: #33ee88;
+	}
+	#logMessages {
+		max-height: 50vh;
+		white-space: pre;
+		text-align: left;
+		overflow: auto;
+		border: 1px solid currentColor;
+		padding: 16px;
+		overflow: auto;
+		font-size: 15px;
+	}
+	#volumeMeterNodeOutput {
+		flex: 1 1 auto;
+		border: 1px solid currentColor;
+		margin: 8px;
+	}
+	#volumeMeterNodeOutput > div {
+		margin: 0;
+		padding: 0;
+		height: 21px;
+		width: 0%;
+		background: #ff3355;
+	}
+	.chart {
+		margin: 30px 0;
+		height: 128px;
+		border: 1px solid #000;
+		overflow: auto;
+	}
+	</style>
+</head>
+<body>
+<div id="mainView">
+	<h1>SEPIA Web Audio Recorder</h1>
+	<div id="info">Info: []</div>
+	<div id="status"></div>
+	<div>
+		<button onclick="createRecorder(this);">Create</button>
+		<button onclick="startRecording(this);">Start</button>
+		<button onclick="stopRecording(this);">Stop</button>
+		<button onclick="releaseRecorder(this);">Release</button>
+	</div>
+	<div>
+		<label>Target Sample-Rate:</label><select id="sampleRateSelector">
+			<option value="">Auto</option>
+			<option value="16000" selected>16000</option>
+			<option value="8000">8000</option>
+			<option value="96000">96000</option>
+		</select>
+		<label>Audio Source:</label><select id="sourceTypeSelector">
+			<option value="mic" selected>Microphone</option>
+			<option value="whiteNoise">White-Noise Generator</option>
+			<option value="file1">File Stream 1</option>
+			<option value="file2">File Stream 2</option>
+		</select>
+		<!--<label>White-Noise Test:</label><input id="useWhiteNoiseRecorder" type="checkbox">-->
+	</div>
+	<div id="logMessages">- Log -</div>
+	<div class="contorlGroup">
+		<label>Volume-Meter Gain:</label><input id="volumeMeterGain" class="small" value="5.0" onchange="setVolumeGain();">
+		<label>Volume-Meter:</label><div id="volumeMeterNodeOutput"><div></div></div>
+	</div>
+	<div id="chart1" class="chart"></div>
+	<div id="chart2" class="chart"></div>
+	<div id="chart3" class="chart"></div>
+</div>
+<script type='text/javascript'>
+	var infoElement = document.getElementById('info');
+	var statusElement = document.getElementById('status');
+	var targetSampleRateSelector = document.getElementById("sampleRateSelector");
+	targetSampleRateSelector.onchange = function(){
+		targetSampleRate = +targetSampleRateSelector.value;
+	};
+	var sourceSelector = document.getElementById("sourceTypeSelector");
+	var logElement = document.getElementById('logMessages');
+	
+	function showLogMessage(msg, data){
+		var info = (typeof data == "object")? JSON.stringify(data) : data; //JSON.stringify(data, "", 2) : data;
+		logElement.textContent += "\n" + (new Date().toLocaleTimeString()) + " - " + (msg + " - " + info);
+		logElement.scrollTo(0, logElement.scrollHeight);
+	}
+	
+	//callbacks:
+	
+	function onRecorderReady(info){
+		statusElement.className = "ready";
+		showLogMessage("onReady", info);
+		infoElement.textContent = "Info: BufferSize=" + info.bufferSize + ", Samplerate=" + info.inputSampleRate;
+		console.log("onReady", info);
+	}
+	
+	function onRecorderInitError(err){
+		statusElement.className = "";
+		showLogMessage("ERROR - onInitError", err);
+		console.error("onInitError", err);
+	}
+	
+	function onAudioStart(info){
+		statusElement.className = "listening"; 
+		showLogMessage("onaudiostart", info);
+		console.log("onaudiostart", info);
+	}
+	
+	function onAudioEnd(info){
+		statusElement.className = "ready";
+		showLogMessage("onaudioend", info);
+		console.log("onaudioend", info);
+	}
+	
+	function onRecorderRelease(info){
+		statusElement.className = "";
+		showLogMessage("onrelease", info);
+		console.log("onrelease", info);
+	}
+	
+	function onProcessorError(err){
+		statusElement.className = "";
+		showLogMessage("ERROR - Processor - onerror", err);
+		console.error("onerror", err);
+	}
+	
+	function onDebugLog(msg){
+		console.log("debugLog", msg);
+	}
+	
+	//main:
+
+	var rec;
+	var targetSampleRate = 16000;
+	
+	async function createRecorder(btn){
+		//audio source
+		var useWhiteNoiseTest = false; //document.getElementById("useWhiteNoiseRecorder").checked;
+		var customSource = undefined;
+		var audioSource = sourceSelector.value;
+		if (audioSource == "whiteNoise"){
+			//customSourceNode: white-noise
+			useWhiteNoiseTest = true;
+		}else if (audioSource.indexOf("file") == 0){
+			//customSourceNode: file audio buffer
+			try {
+				customSource = await createFileSource(audioSource);
+			}catch (err){
+				onRecorderInitError(err);
+				return;
+			}
+		}else{
+			//default: mic
+		}
+		
+		//set correct modules folder
+		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+				
+		//create processor
+		rec = new SepiaFW.webAudio.Processor({
+			onaudiostart: onAudioStart,
+			onaudioend: onAudioEnd,
+			onrelease: onRecorderRelease,
+			onerror: onProcessorError,
+			targetSampleRate: targetSampleRate,
+			//targetBufferSize: 512,
+			modules: [{
+				name: 'volume-meter',
+				setup: {
+					onmessage: setVolume1,
+					options: {
+						//use AudioWorklet options directly or common "setup" field for worklet and workers:
+						processorOptions: {
+							smoothingFactor: volSmooth
+						}
+					}
+				}
+			},{
+				name: 'resample-switch',
+				setup: {
+					onmessage: setVolume2,
+					options: {
+						processorOptions: {
+							targetSamplerate: 16000,
+							resampleQuality: 7,
+							bufferSize: 512,
+							passThroughMode: 1,		//0: none, 1: original (float32), 2: 16Bit PCM - NOTE: NOT resampled
+							calculateRmsVolume: true
+						}
+					}
+				}
+			},{
+				name: 'wave-encoder',
+				type: 'worker',
+				setup: {
+					onmessage: setVolume3,
+					options: {
+						processorOptions: {
+							smoothingFactor: volSmooth
+						}
+					}
+				}
+			}],
+			destinationNode: undefined,		//defaults to: audioContext.destination
+			startSuspended: true,
+			debugLog: onDebugLog,
+			customSourceTest: useWhiteNoiseTest,
+			customSource: customSource
+			
+		}, function(msg){
+			//Init. ready
+			onRecorderReady(msg);
+			
+		}, function(err){
+			//Init. error
+			onRecorderInitError(err);
+		});
+	}
+	
+	function startRecording(btn){
+		if (rec){
+			rec.start();
+		}
+	}
+	
+	function stopRecording(btn){
+		if (rec){
+			rec.stop();
+			//UI specific:
+			setVolumeBar({volume: 0.0});
+		}
+	}
+	
+	function releaseRecorder(btn){
+		if (rec){
+			rec.release();
+		}
+	}
+	
+	//Custom audio nodes
+	
+	async function createFileSource(fileId){
+		var fileUrl;
+		if (fileId == "file2"){
+			fileUrl = "test-sounds/chatter_counting.ogg";
+		}else{
+			fileUrl = "test-sounds/traffic_counting.ogg";
+		}
+		showLogMessage("createFileSource", fileUrl); 
+		return SepiaFW.webAudio.createFileSource(fileUrl, {
+			targetSampleRate: targetSampleRate
+		});
+	}
+	
+	//Audio node data/visualizations:
+	
+	var volMeterOutBar = document.getElementById('volumeMeterNodeOutput').firstChild;
+	var volGain = +document.getElementById('volumeMeterGain').value;
+	var volSmooth = 0.8;	//0=none, 1=max
+	function setVolumeGain(input){
+		volGain = input || +document.getElementById('volumeMeterGain').value;
+	}
+	setVolumeGain();
+	function setVolumeBar(data){
+		//console.log("volume-bar data", data);
+		var volPercent = Math.min(100, Math.round(volGain * data.volume * 100));
+		volMeterOutBar.style.width = (volPercent + "%");
+	}
+	
+	function setVolume1(data){
+		//console.log(data);
+		if (data.volume != undefined){
+			plot1.addValues(data.volume);
+			plot1.draw();
+		}else{
+			console.log(data);
+		}
+	}
+	function setVolume2(data){
+		//console.log(data.samples);
+		if (data.rms != undefined){
+			plot2.addValues(data.rms);
+			plot2.draw();
+		}else{
+			console.log(data);
+		}
+	}
+	function setVolume3(data){
+		//console.log(data);
+		if (data.volume != undefined){
+			plot3.addValues(data.volume);
+			plot3.draw();
+		}else{
+			console.log(data);
+		}
+	}
+	
+	var plot1 = new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
+		rememberMax: true
+	});
+	var plot2 = new uPlot.lazy.AutoSeries(document.getElementById('chart2'), 150, {
+		rememberMax: true
+	}, {
+		showAxisX: false
+	});
+	var plot3 = new uPlot.lazy.AutoSeries(document.getElementById('chart3'), 150, {
+		rememberMax: true
+	});
+		
+	function debugInfo(source, data){
+		console.log(source, data);
+	}
+</script>
+</body>
+</html>

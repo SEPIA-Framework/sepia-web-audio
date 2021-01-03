@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2020 SEPIA
+Copyright (c) 2020 SEPIA Framework
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+# Included Licenses
+
+AudioWorklet Polyfill - Apache-2.0 License - [GoogleChromeLabs Repository](https://github.com/GoogleChromeLabs/audioworklet-polyfill)
+ring-buffer.js, wasm-heap-audio-buffer.js - Apache-2.0 License - [GoogleChromeLabs Repository](https://github.com/GoogleChromeLabs/web-audio-samples/blob/gh-pages/audio-worklet/design-pattern/lib/wasm-audio-helper.js)
+Mozilla WebRTC VAD - MPL-2.0 License - [Mozilla Repository](https://github.com/mozilla/webrtcvad_js)
+Chromium VAD - 3-Clause BSD - [Chromium Repository](https://chromium.googlesource.com/external/webrtc/+/refs/heads/lkgr/common_audio/vad/)
+Meyda - MIT License - [Meyda Repository](https://github.com/meyda/meyda)
+Speex Resampler - MIT License - [Node Speex Resampler](https://github.com/geekuillaume/node-speex-resampler) and [SpeexDSP](https://github.com/xiph/speexdsp)

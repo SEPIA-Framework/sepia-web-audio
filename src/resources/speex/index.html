@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+  <title>Speex Test</title>
+  
+  <script type="text/javascript" src="speex_wasm.slim.js"></script>
+  <script type="text/javascript" src="index.js"></script>
+	
+  <style>
+	* {
+		box-sizing: border-box;
+	}
+  </style>
+</head>
+<body>
+<div id="mainView">
+	<div id="info"></div>
+	<button onclick="start();">START</button>
+</div>
+<script type='text/javascript'>
+	var infoElement = document.getElementById('info');
+	
+	async function start(){
+		await SpeexResampler.initPromise; // will be resolved once the WASM module has been compiled, before this you cannot call the SpeexResampler processChunk method
+
+		var channels = 1; // minimum is 1, no maximum
+		var inRate = 24000; // frequency in Hz for the input chunk
+		var outRate = 16000; // frequency in Hz for the target chunk
+		var quality = 7; // number from 1 to 10, default to 7, 1 is fast but of bad quality, 10 is slow but best quality
+		// you need a new resampler for every audio stream you want to resample
+		// it keeps data from previous calls to improve the resampling
+		var resampler = new SpeexResampler(
+			channels,
+			inRate,
+			outRate,
+			quality // optionnal
+		);
+
+		loadWav("../../test-sounds/chatter_counting.wav", function(pcmData){
+			console.log("got pcmData", pcmData.length);
+			var res = resampler.processChunk(pcmData);
+			console.log("DONE", res);
+			// res is also a buffer with interleaved signed 16 bits PCM data
+		}, console.error);
+	}
+	
+	//----------
+	
+	async function loadWav(fileUrl, decodeCallback){
+		//AudioContext and AudioBufferSourceNode
+		var audioContext = new AudioContext({sampleRate: 24000});
+		await audioContext.resume();
+		
+		function successCallback(arrayBuffer){
+			audioContext.decodeAudioData(arrayBuffer, function(buffer){
+				var channelDataFloat32 = buffer.getChannelData(0);
+				console.log("channelDataFloat32", channelDataFloat32.length);
+				decodeCallback(floatTo16BitPCM(channelDataFloat32));
+			}, function(err){ 
+				reject(err);
+			});
+		}
+		function errorCallback(err){
+			console.log(err);
+		}
+		xmlHttpCallForArrayBuffer(fileUrl, successCallback, errorCallback);
+	}
+	function floatTo16BitPCM(input) {
+		var output = new DataView(new ArrayBuffer(input.length * 2)); 	// length is in bytes (8-bit), so *2 to get 16-bit length
+		for (var i = 0; i < input.length; i++) {
+			var multiplier = input[i] < 0 ? 0x8000 : 0x7fff; 			// 16-bit signed range is -32768 to 32767
+			output.setInt16(i * 2, (input[i] * multiplier) | 0, true); 	// index, value ("| 0" = convert to 32-bit int, round towards 0), littleEndian.
+		}
+		return new Int16Array(output.buffer);		//TODO: use 'Array.from' ?
+	};
+	function xmlHttpCallForArrayBuffer(fileUrl, successCallback, errorCallback){
+		var request = new XMLHttpRequest();
+		request.open('GET', fileUrl);
+		request.responseType = 'arraybuffer';
+		request.timeout = 8000;
+		request.onload = function(e){
+			if (request.status >= 200 && request.status < 300){
+				successCallback(request.response); 	//the arraybuffer is in request.response
+			}else{
+				errorCallback({
+					status: request.status,
+					message: request.statusText
+				});
+			}
+		};
+		request.onerror = function(e){
+			errorCallback(e);
+		};
+		request.send();
+	}
+</script>
+</body>
+</html>
