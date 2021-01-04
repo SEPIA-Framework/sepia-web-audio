@@ -10,7 +10,7 @@ onmessage = function(e) {
 				constructWorker(e.data.ctrl.options);
 				break;
 			case "process":
-				process(e.data.ctrl.samples, e.data.ctrl.sampleRate, e.data.ctrl.parameters);
+				process(e.data.ctrl.data);
 				break;
 			case "start":
 				start(e.data.ctrl.options);
@@ -41,7 +41,8 @@ function constructWorker(options) {
 	});
 }
 
-function process(samples, sampleRate, parameters) {
+function process(data) {
+	//data, e.g.: samples, sampleRate, parameters
     //TODO: process data
 	
 	//postMessage(result);

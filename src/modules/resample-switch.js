@@ -24,6 +24,17 @@ class ResampleProcessor extends AudioWorkletProcessor {
 	get SpeexResampler() {
 		return function(cc, is, os, q){return new SpeexResampler(cc, is, os, q);}
 	}
+	
+	get emitterRms() {
+		if (this.calculateRmsVolume){
+			let rms = Math.sqrt(this._emitterSqrSum / this._emitterSamples);
+			this._emitterSqrSum = 0;
+			this._emitterSamples = 0;
+			return rms;
+		}else{
+			return 0;
+		}
+	}
   
 	constructor(options) {
 		super();
@@ -32,51 +43,51 @@ class ResampleProcessor extends AudioWorkletProcessor {
 		this.EXPECTED_SAMPLE_SIZE = 128;	//currently 128, but might change in future ... and even become variable! (I hope not)
 		this.sourceSamplerate = options.processorOptions.ctxInfo.sampleRate;	//INFO: should be same as global scope 'sampleRate'
 
-		this.targetSamplerate = options.processorOptions.targetSamplerate || options.processorOptions.ctxInfo.targetSampleRate || 16000;
+		this.targetSampleRate = options.processorOptions.targetSampleRate || options.processorOptions.ctxInfo.targetSampleRate || 16000;
 		this.resampleQuality = options.processorOptions.resampleQuality || 7;	//number from 1 to 10, 1 is fast but of bad quality, 10 is slow but best quality (less noise/aliasing, a higher complexity and a higher latency)
 		this.emitterBufferSize = options.processorOptions.bufferSize || 512;
 		this.channelCount = 1; //options.processorOptions.channels || 1;		//TODO: supports ONLY MONO atm
+		this._bytesPerSample = 2;			//for buffer (aka Xint8 Array) length is in bytes (8bit), so *2 to get 16bit length;
 		this.resampler;
 		
 		this.passThroughMode = (options.processorOptions.passThroughMode != undefined)? options.processorOptions.passThroughMode : 1;	//0: nothing, 1: original, 2: 16bit PCM
 		this.calculateRmsVolume = (options.processorOptions.calculateRmsVolume != undefined)? options.processorOptions.calculateRmsVolume : true;
 				
 		//resampling - modes 0: no change, -1: downsampling, 1: upsampling
-		this.resamplingMode = (this.targetSamplerate < this.sourceSamplerate? -1 : (this.targetSamplerate > this.sourceSamplerate? 1 : 0));
+		this.resamplingMode = (this.targetSampleRate < this.sourceSamplerate? -1 : (this.targetSampleRate > this.sourceSamplerate? 1 : 0));
 		
-		/*
-		if (this.resamplingMode == 0 && this.sourceSamplerate != this.targetSamplerate){
-			let msg = "Sample-rate of '" + this.sourceSamplerate + "' not supported!";
-			console.error("AudioWorkletProcessor: 16bit-pcm-16000-junction - Msg.: " + msg);
-			throw new this.SampleRateException(msg);
+		function init(){
+			//RingBuffers - alloc. space for emitter + 1 frame overhead
+			//that._inputRingBuffer = new RingBuffer(that.collectorBufferSize + that.EXPECTED_SAMPLE_SIZE, that.channelCount);
+			that._outputRingBuffer = new RingBuffer(that.emitterBufferSize + that.EXPECTED_SAMPLE_SIZE, that.channelCount, "Uint8");
+
+			//Input and output (for each channel) - TODO: set size, one for each channel
+			//that._newInputBuffer = [new Float32Array(that.collectorBufferSize)];
+			that._newInputBuffer = [new Int16Array(that.EXPECTED_SAMPLE_SIZE)];		
+			//TODO: for interleaved STEREO we need [new Uint8Array(that.EXPECTED_SAMPLE_SIZE * that.channelCount * that._bytesPerSample)];
+				//NOTE: we could use DataView instead
+				//let buffer = new ArrayBuffer(that.EXPECTED_SAMPLE_SIZE * that.channelCount * that._bytesPerSample);
+				//let that._inputDataView = new DataView(buffer);
+			that._newOutputBuffer = [new Uint8Array(that.emitterBufferSize)];
+			
+			that._isFirstValidProcess = true;
+			//that._lastEmit = 0;
+			
+			that._emitterSqrSum = 0;
+			that._emitterSamples = 0;
 		}
-		*/
-
-		//RingBuffers - alloc. space for emitter + 1 frame overhead
-		//this._inputRingBuffer = new RingBuffer(this.collectorBufferSize + this.EXPECTED_SAMPLE_SIZE, this.channelCount);
-		this._outputRingBuffer = new RingBuffer(this.emitterBufferSize + this.EXPECTED_SAMPLE_SIZE, this.channelCount, "Uint8");
-
-		//Input and output (for each channel) - TODO: set size, one for each channel
-		//this._newInputBuffer = [new Float32Array(this.collectorBufferSize)];
-		this._newInputBuffer = [new Int16Array(this.EXPECTED_SAMPLE_SIZE)];		//TODO: for STEREO we need to do I think: (s * this.channelCount)
-			//NOTE: we could use DataView instead
-			//let buffer = new ArrayBuffer(this.EXPECTED_SAMPLE_SIZE * 2);	//length is in bytes (8-bit), so *2 to get 16-bit length; " "
-            //let this._inputDataView = new DataView(buffer);
-		this._newOutputBuffer = [new Uint8Array(this.emitterBufferSize)];
-		
-		this.isFirstValidProcess = true;
-		this.lastEmit = 0;
+		init();
 		
 		function ready(){
 			//use new resampler for every instance - it keeps data from previous calls to improve the resampling
 			that.resampler = that.SpeexResampler(
-				that.channelCount, that.sourceSamplerate, that.targetSamplerate, that.resampleQuality
+				that.channelCount, that.sourceSamplerate, that.targetSampleRate, that.resampleQuality
 			);
 			that.port.postMessage({
 				moduleState: 1,
 				moduleInfo: {
 					sourceSamplerate: that.sourceSamplerate,
-					targetSamplerate: that.targetSamplerate,
+					targetSampleRate: that.targetSampleRate,
 					emitterBufferSize: that.emitterBufferSize,
 					calculateRmsVolume: that.calculateRmsVolume,
 					channelCount: that.channelCount,
@@ -92,13 +103,27 @@ class ResampleProcessor extends AudioWorkletProcessor {
 		}
 		//stop
 		function stop(options){
-			//TODO: anything?
+			//send out the remaining buffer data here
+			if (that._outputRingBuffer.framesAvailable){
+				//pull last samples
+				var lastSamples = [new Uint8Array(that._outputRingBuffer.framesAvailable)];
+				that._outputRingBuffer.pull(lastSamples);
+
+				//Send info
+				that.port.postMessage({
+					rms: that.emitterRms,
+					samples: lastSamples,
+					sampleRate: that.targetSampleRate,
+					channels: that.channelCount,
+					type: lastSamples[0].constructor.name,
+					isLast: true
+				});
+			}
 			//NOTE: timing of this signal is not very well defined
 		}
 		function reset(options){
 			//TODO: implement
-			this.isFirstValidProcess = true;
-			this.lastEmit = 0;
+			init();
 		}
 		
 		//Control messages
@@ -106,6 +131,7 @@ class ResampleProcessor extends AudioWorkletProcessor {
 			if (e.data.ctrl){
 				console.error("Controls", e.data.ctrl);			//DEBUG
 				switch (e.data.ctrl.action) {
+					//common interface
 					case "start":
 						start(e.data.ctrl.options);
 						break;
@@ -142,7 +168,7 @@ class ResampleProcessor extends AudioWorkletProcessor {
 	}
 
 	process(inputs, outputs, parameters) {
-		//Use 1st input and output only - TODO: supports only mono atm
+		//Use 1st input and output only
 		let input = inputs[0];
 		let output = outputs[0];
 
@@ -150,8 +176,8 @@ class ResampleProcessor extends AudioWorkletProcessor {
 		if (input.length > 0){
 			let inputSampleSize = input[0].length;
 			
-			if (this.isFirstValidProcess){
-				this.isFirstValidProcess = false;
+			if (this._isFirstValidProcess){
+				this._isFirstValidProcess = false;
 				//check inputSampleSize
 				if (inputSampleSize != this.EXPECTED_SAMPLE_SIZE){
 					let msg = "Sample size is: " + inputSampleSize + ", expected: " + this.EXPECTED_SAMPLE_SIZE + ". Need code adjustments!";
@@ -160,15 +186,26 @@ class ResampleProcessor extends AudioWorkletProcessor {
 				}
 			}
 			
-			//transfer input to 16bit signed, interleaved (channels) PCM output
+			//transfer input to 16bit signed, interleaved (channels) PCM output - TODO: ONLY MONO so far!
 			let sqrSum = 0;
 			for (let i = 0; i < inputSampleSize; ++i){
-				let sampleVal = input[0][i];		//TODO: ONLY MONO!
-				//let sampleVal = Math.max(-1, Math.min(1, input[i]));		//by definition the range should be -1 to 1 already
 				
-				//TODO: if not MONO interleave channels
+				//TODO: if not MONO interleave channels - requires: UInt8Array !!!
+				/*
+				for (let channel = 0; channel < this.numberOfChannels; channel++){
+					//pass through original
+					output[channel][i] = input[channel][i];
+					//clip and floatTo16BitPCM
+					let sampleVal = Math.max(-1, Math.min(1, input[channel][i])) * 32767.5 - 0.5;
+					//assign
+					let outputIndex = (i * this.channelCount + channel) * this._bytesPerSample;
+					this._newInputBuffer[channel][outputIndex] = sampleVal;
+					this._newInputBuffer[channel][outputIndex + 1] = sampleVal >> 8;
+				}
+				*/
 				
 				//floatTo16BitPCM
+				let sampleVal = Math.max(-1, Math.min(1, input[0][i]));		//we need -1 to 1 - If this is the first processor we could skip clipping
                 //this._inputDataView.setInt16(i * 2, sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7FFF, true);	// 16-bit signed range is -32768 to 32767, littleEndian byte order.
 				this._newInputBuffer[0][i] = sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7FFF;
 				
@@ -176,23 +213,23 @@ class ResampleProcessor extends AudioWorkletProcessor {
 				if (this.passThroughMode == 2){
 					output[0][i] = this._newInputBuffer[0][i];	//16Bit PCM
 				}else if (this.passThroughMode == 1){
-					output[0][i] = sampleVal;					//original float32
+					output[0][i] = sampleVal;					//original (float32)
 				}
 				
 				//calc. sum for RMS
 				if (this.calculateRmsVolume){
-					sqrSum += (sampleVal ** 2);
+					this._emitterSqrSum += (sampleVal ** 2);
 				}
 			}
-			let rms = this.calculateRmsVolume? Math.sqrt(sqrSum / inputSampleSize) : 0;
+			this._emitterSamples += inputSampleSize;
 			
 			if (this.resamplingMode != 0){
-				//let interleaved16bitPcmAudioChunk = new Int16Array(this._inputDataView);		//TODO: what is the best way to proceed here?? use 'Array.from' ?
+				//let interleaved16bitPcmAudioChunk = new Int16Array(this._inputDataView);
 				//let processed = this.resampler.processChunk(interleaved16bitPcmAudioChunk);
 				let processed = this.resampler.processChunk(this._newInputBuffer[0]);
 				this._outputRingBuffer.push([processed]);				//TODO: is MONO
 			}else{
-				this._outputRingBuffer.push([this._newInputBuffer[0]]);	//TODO: is MONO
+				this._outputRingBuffer.push([this._newInputBuffer[0]]);	//TODO: is MONO	- TODO: this needs to be Uint8Array
 			}
 			
 			//Process if we have enough frames for the kernel.
@@ -202,9 +239,11 @@ class ResampleProcessor extends AudioWorkletProcessor {
 
 				//Send info
 				this.port.postMessage({
-					rms: rms,
+					rms: this.emitterRms,
 					samples: this._newOutputBuffer,
-					sampleRate: this.targetSamplerate
+					sampleRate: this.targetSampleRate,
+					channels: this.channelCount,
+					type: this._newOutputBuffer[0].constructor.name
 				});
 			}
 		}

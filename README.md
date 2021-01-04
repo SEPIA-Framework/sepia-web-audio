@@ -1,6 +1,6 @@
 # sepia-web-audio
 
-Cross-browser web audio recorder and VAD
+Cross-browser web audio processor, recorder and VAD
 
 # Resources (see LICENSE as well)
 
@@ -10,5 +10,6 @@ Cross-browser web audio recorder and VAD
 * [Chromium VAD](https://chromium.googlesource.com/external/webrtc/+/refs/heads/lkgr/common_audio/vad/)
 * [Meyda](https://github.com/meyda/meyda)
 * [Node Speex Resampler](https://github.com/geekuillaume/node-speex-resampler)
+* [pcm-convert](https://github.com/audiojs/pcm-convert)
 * [uPlot Lazy Interface](https://github.com/bytemind-de/uPlot-lazy-interface)
 * [Freesound.org](https://freesound.org/)

@@ -9,12 +9,9 @@ registerProcessor('volume-meter', class extends AudioWorkletProcessor {
         this._updateIntervalInMS = 25;
         this._nextUpdateFrame = this._updateIntervalInMS;
 		
-		this.smoothingFactor = 0.0;
-		if (options.processorOptions && options.processorOptions.smoothingFactor != undefined){
-			//0: no smoothing, 1: keep at max (known) value
-			this.smoothingFactor = options.processorOptions.smoothingFactor;
-		}
-        
+		//0: no smoothing, 1: keep at max (known) value
+		this.smoothingFactor = (options.processorOptions.smoothingFactor != undefined)? options.processorOptions.smoothingFactor : 0.0;
+		        
 		this.port.onmessage = event => {
             if (event.data.updateIntervalInMS){
                 this._updateIntervalInMS = event.data.updateIntervalInMS;
@@ -35,7 +32,6 @@ registerProcessor('volume-meter', class extends AudioWorkletProcessor {
     process(inputs, outputs, parameters) {
         const input = inputs[0];
 		const output = outputs[0];
-		//console.log("+");		//DEBUG
 
         // Note that the input will be down-mixed to mono; however, if no inputs are
         // connected then zero channels will be passed in.
@@ -46,8 +42,7 @@ registerProcessor('volume-meter', class extends AudioWorkletProcessor {
 
             // Calculated the squared-sum.
             for (let i = 0; i < samples.length; ++i){
-                sum += samples[i] * samples[i];
-				
+                sum += samples[i] ** 2;
 				output[0][i] = samples[i];		//TODO: check the channels properly here!
 			}
 

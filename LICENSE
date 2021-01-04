@@ -28,3 +28,4 @@ Mozilla WebRTC VAD - MPL-2.0 License - [Mozilla Repository](https://github.com/m
 Chromium VAD - 3-Clause BSD - [Chromium Repository](https://chromium.googlesource.com/external/webrtc/+/refs/heads/lkgr/common_audio/vad/)
 Meyda - MIT License - [Meyda Repository](https://github.com/meyda/meyda)
 Speex Resampler - MIT License - [Node Speex Resampler](https://github.com/geekuillaume/node-speex-resampler) and [SpeexDSP](https://github.com/xiph/speexdsp)
+pcm-convert - MIT License - [pcm-convert Repository](https://github.com/audiojs/pcm-convert)
