@@ -131,12 +131,27 @@
 	</div>
 	<div id="logMessages">- Log -</div>
 	<div class="contorlGroup">
-		<label>Volume-Meter Gain:</label><input id="volumeMeterGain" class="small" value="5.0" onchange="setVolumeGain();">
-		<label>Volume-Meter:</label><div id="volumeMeterNodeOutput"><div></div></div>
+		<label><b>Volume-Meter</b></label>
+		<label>Gain:</label><input id="volumeMeterGain" class="small" value="5.0" onchange="setVolumeGain();">
+		<label>Meter:</label><div id="volumeMeterNodeOutput"><div></div></div>
+	</div>
+	<div class="contorlGroup">
+		<label><b>Resampler</b></label>
+		<label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);">
+		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);">
+		<label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);">
+	</div>
+	<div class="contorlGroup">
+		<label><b>Wave Encoder</b></label>
+		<label>Gate:</label><div id="waveEncoderGateState">close</div><label>-</label>
+		<label>Controls:</label><button onclick="waveEncoderSetGate('open');">Open Gate</button>
+		<button onclick="waveEncoderSetGate('close');">Close Gate</button>
+		<button onclick="waveEncoderGetWave();">Get Wave-File</button>
+		<button onclick="waveEncoderGetBuffer();">Show Buffer</button>
 	</div>
 	<div id="chart1" class="chart"></div>
 	<div id="chart2" class="chart"></div>
-	<div id="chart3" class="chart"></div>
+	<!--<div id="chart3" class="chart"></div>-->
 </div>
 <script type='text/javascript'>
 	var infoElement = document.getElementById('info');
@@ -224,6 +239,52 @@
 		
 		//set correct modules folder
 		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		
+		//create processor modules
+		var volumeMeter = {
+			name: 'volume-meter',
+			setup: {
+				onmessage: setVolume1,
+				options: {
+					//use AudioWorklet options directly or common "setup" field for worklet and workers:
+					processorOptions: {
+						smoothingFactor: volSmooth
+					}
+				}
+			}
+		};
+		var resampler = {
+			name: 'buffer-switch', //'resample-switch',
+			setup: {
+				onmessage: "", //setVolume2,
+				sendToModules: [3],		//index as given to processor - 0: source, 1: volume-meter, 2: resample-switch, 3: wave-encoder
+				options: {
+					processorOptions: {
+						targetSampleRate: resamplerSampleRate, 	//16000,
+						resampleQuality: resamplerQuality, 		//7,
+						bufferSize: resamplerBufferSize, 		//512,
+						passThroughMode: 1,		//0: none, 1: original (float32), 2: 16Bit PCM - NOTE: NOT resampled
+						calculateRmsVolume: true
+					}
+				}
+			}
+		};
+		var waveEncoder = {
+			name: 'wave-encoder',
+			type: 'worker',
+			handle: {},		//will be updated on init. with ref. to node.
+			setup: {
+				onmessage: waveEncoderMessage,
+				options: {
+					setup: {
+						inputSampleRate: resamplerSampleRate,	//output sampleRate of previous module, if undefined take targetSampleRate
+						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
+						lookbackBufferMs: 0
+					}
+				}
+			}
+		};
+		window.waveEncoder = waveEncoder;
 				
 		//create processor
 		rec = new SepiaFW.webAudio.Processor({
@@ -233,43 +294,7 @@
 			onerror: onProcessorError,
 			targetSampleRate: targetSampleRate,
 			//targetBufferSize: 512,
-			modules: [{
-				name: 'volume-meter',
-				setup: {
-					onmessage: setVolume1,
-					options: {
-						//use AudioWorklet options directly or common "setup" field for worklet and workers:
-						processorOptions: {
-							smoothingFactor: volSmooth
-						}
-					}
-				}
-			},{
-				name: 'resample-switch',
-				setup: {
-					onmessage: setVolume2,
-					options: {
-						processorOptions: {
-							targetSamplerate: 16000,
-							resampleQuality: 7,
-							bufferSize: 512,
-							passThroughMode: 1,		//0: none, 1: original (float32), 2: 16Bit PCM - NOTE: NOT resampled
-							calculateRmsVolume: true
-						}
-					}
-				}
-			},{
-				name: 'wave-encoder',
-				type: 'worker',
-				setup: {
-					onmessage: setVolume3,
-					options: {
-						processorOptions: {
-							smoothingFactor: volSmooth
-						}
-					}
-				}
-			}],
+			modules: [volumeMeter, resampler, waveEncoder],
 			destinationNode: undefined,		//defaults to: audioContext.destination
 			startSuspended: true,
 			debugLog: onDebugLog,
@@ -336,6 +361,55 @@
 		volMeterOutBar.style.width = (volPercent + "%");
 	}
 	
+	var resamplerSampleRate = 16000;
+	var resamplerBufferSize = 512;
+	var resamplerQuality = 7;
+	function setResamplerSampleRate(inputEle){
+		resamplerSampleRate = +inputEle.value;
+	}
+	function setResampleBufferSize(inputEle){
+		resamplerBufferSize = +inputEle.value;
+	}
+	function setResampleQuality(inputEle){
+		resamplerQuality = +inputEle.value;
+	}
+	
+	function waveEncoderSetGate(state){
+		window.waveEncoder.handle.sendToModule({gate: state});
+		document.getElementById('waveEncoderGateState').textContent = state;
+	}
+	function waveEncoderGetWave(){
+		window.waveEncoder.handle.sendToModule({request: {get: "wave"}});
+	}
+	function waveEncoderGetBuffer(){
+		window.waveEncoder.handle.sendToModule({request: {get: "buffer"}});
+	}
+	function waveEncoderMessage(data){
+		console.error("wave-encoder", data);
+		if (data.output && data.output.wav){
+			addWaveToPage(data.output.wav);
+			
+		}else if (data.output && data.output.buffer){
+			var ele = addChartContainerToPage();
+			var x = uPlot.lazy.createSequence(0, data.output.buffer.length);
+			var y = data.output.buffer;
+			uPlot.lazy.plot({
+				targetElement: ele,
+				showPoints: false,
+				strokeWidth: 1,
+				data: [x, y]
+			});
+		}
+	}
+	function addWaveToPage(wavAudio){
+		var audioEle = document.createElement("audio");
+		audioEle.src = window.URL.createObjectURL(new Blob([wavAudio], { type: "audio/wav" }));
+		audioEle.setAttribute("controls", "controls");
+		var audioBox = document.createElement("div");
+		audioBox.appendChild(audioEle);
+		document.body.appendChild(audioBox);
+	}
+	
 	function setVolume1(data){
 		//console.log(data);
 		if (data.volume != undefined){
@@ -364,6 +438,12 @@
 		}
 	}
 	
+	function addChartContainerToPage(){
+		var ele = document.createElement("div");
+		ele.className = "chart";
+		document.getElementById("mainView").appendChild(ele);
+		return ele;
+	}
 	var plot1 = new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
 		rememberMax: true
 	});
@@ -372,9 +452,11 @@
 	}, {
 		showAxisX: false
 	});
+	/*
 	var plot3 = new uPlot.lazy.AutoSeries(document.getElementById('chart3'), 150, {
 		rememberMax: true
 	});
+	*/
 		
 	function debugInfo(source, data){
 		console.log(source, data);
