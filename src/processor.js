@@ -205,6 +205,10 @@ if (!(typeof SepiaFW == "object")){
 							if (--n == 0){
 								completeCallback(initInfo);
 							}
+						}else if (moduleSetup.sendToModules){
+							moduleSetup.sendToModules.forEach(function(n){
+								processNodes[n].sendToModule({ctrl: {action: "process", data: event.data}});
+							});
 						}
 						if (moduleSetup.onmessage){
 							moduleSetup.onmessage(event.data);
@@ -254,6 +258,7 @@ if (!(typeof SepiaFW == "object")){
 						thisProcessNode.sendToModule({ctrl: {action: "construct", options: fullOptions}});
 					}
 					thisProcessNode.moduleType = moduleType;
+					module.handle = thisProcessNode;
 					
 					processNodes.push(thisProcessNode);
 				});
