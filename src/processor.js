@@ -580,6 +580,43 @@ if (!(typeof SepiaFW == "object")){
 		});
 	}
 	
+	//Encode buffer to wave
+	WebAudio.encodeWaveBuffer = function(buffer, sampleRate, channels, isFloat32, successCallback, errorCallback){
+		var moduleFolder = WebAudio.defaultProcessorOptions.moduleFolder.replace(/\/$/, "") + "/";
+		var encoderWorker = new Worker(moduleFolder + 'wave-encoder' + '-worker.js');
+		if (!successCallback) successCallback = console.log;
+		if (!errorCallback) errorCallback = console.error;
+		var options = {
+			setup: {
+				inputSampleRate: sampleRate,
+				inputSampleSize: buffer.length,
+				lookbackBufferMs: 0
+			}
+		};
+		encoderWorker.onmessage = function(e){
+			if (e.data.moduleState == 1){
+				encoderWorker.postMessage({encode: {format: "wave", data: {
+					samples: [buffer],		//MONO or interleaved in channel 1
+					sampleRate: sampleRate, 
+					channels: channels, 
+					isFloat32: isFloat32
+				}}});
+			}else if (e.data.encoderResult){
+				if (e.data.error){
+					errorCallback({name: "EncoderError", message: e.data.error});
+				}else{
+					successCallback(e.data.encoderResult);
+				}
+				encoderWorker.terminate();
+			}
+		};
+		encoderWorker.onerror = function(err){
+			errorCallback(err);
+			encoderWorker.terminate();
+		}
+		encoderWorker.postMessage({ctrl: {action: "construct", options: options}});
+	}
+	
 	//Commons
 	
 	//fallback for: SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer");
