@@ -22,9 +22,12 @@ class BufferProcessor extends AudioWorkletProcessor {
 		
 		this.passThroughMode = (options.processorOptions.passThroughMode != undefined)? options.processorOptions.passThroughMode : 1;	//0: nothing, 1: original
 		
+		//this._test = []; 		//DEBUG
+		
 		function init(){
 			//RingBuffers
-			that._outputRingBuffer = new RingBuffer(that.emitterBufferSize + that.EXPECTED_SAMPLE_SIZE, that.channelCount, "Float32");
+			//that._outputRingBuffer = new RingBuffer(that.emitterBufferSize + that.EXPECTED_SAMPLE_SIZE, that.channelCount, "Float32");	//TODO: creates glitches and I dont know why??
+			that._outputRingBuffer = new RingBuffer(that.emitterBufferSize, that.channelCount, "Float32");
 			that._newOutputBuffer = [new Float32Array(that.emitterBufferSize)];
 			
 			that._isFirstValidProcess = true;
@@ -47,6 +50,8 @@ class BufferProcessor extends AudioWorkletProcessor {
 		function start(options){
 			//TODO: anything?
 			//NOTE: timing of this signal is not very well defined
+			
+			//that._test = [];		//DEBUG
 		}
 		//stop
 		function stop(options){
@@ -66,6 +71,14 @@ class BufferProcessor extends AudioWorkletProcessor {
 				});
 			}
 			//NOTE: timing of this signal is not very well defined
+			
+			/* DEBUG
+			console.error(that._test);
+			that.port.postMessage({
+				test: that._test,
+				sampleRate: that.sourceSamplerate,
+				channels: that.channelCount
+			}); */
 		}
 		function reset(options){
 			//TODO: implement
@@ -129,6 +142,7 @@ class BufferProcessor extends AudioWorkletProcessor {
 			if (this._outputRingBuffer.framesAvailable >= this.emitterBufferSize) {
 				//pull samples
 				this._outputRingBuffer.pull(this._newOutputBuffer);
+				//this._test.push(...this._newOutputBuffer[0]);		//DEBUG
 
 				//Send info
 				this.port.postMessage({

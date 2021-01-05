@@ -59,7 +59,7 @@ class ResampleProcessor extends AudioWorkletProcessor {
 		function init(){
 			//RingBuffers - alloc. space for emitter + 1 frame overhead
 			//that._inputRingBuffer = new RingBuffer(that.collectorBufferSize + that.EXPECTED_SAMPLE_SIZE, that.channelCount);
-			that._outputRingBuffer = new RingBuffer(that.emitterBufferSize + that.EXPECTED_SAMPLE_SIZE, that.channelCount, "Uint8");
+			that._outputRingBuffer = new RingBuffer(that.emitterBufferSize, that.channelCount, "Uint8");
 
 			//Input and output (for each channel) - TODO: set size, one for each channel
 			//that._newInputBuffer = [new Float32Array(that.collectorBufferSize)];
