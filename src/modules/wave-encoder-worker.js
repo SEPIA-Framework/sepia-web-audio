@@ -44,6 +44,8 @@ onmessage = function(e) {
 				console.log("Unknown request message:", e.data);
 				break;
 		}
+	}else if (e.data.encode && e.data.encode.data){
+		encodeInterface(e.data.encode);
 	}
 };
 
@@ -57,6 +59,7 @@ let _lookbackRingBuffer;
 let recordedBuffers;
 
 let gateIsOpen = false;
+let _isFirstValidProcess = true;
 
 function init(){
 	if (lookbackBufferMs){
@@ -64,9 +67,104 @@ function init(){
 		_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, "Uint8");	//TODO: test for Float32
 	}
 	recordedBuffers = [];
+	_isFirstValidProcess = true;
 }
 
 //Requests
+
+function getBuffer(start, end){
+	//TODO: use start, end
+	var res = buildBuffer(start, end);
+	postMessage({
+		output: {
+			buffer: res.buffer
+		}
+	});
+}
+function getWave(start, end){
+	//TODO: use start, end
+	var res = buildBuffer(start, end);
+	var view = encodeWAV(res.buffer, inputSampleRate, channelCount, res.isFloat32);
+
+	postMessage({
+		output: {
+			wav: view,
+			sampleRate: inputSampleRate,
+			channels: channelCount
+		}
+	});
+}
+
+function gateControl(open){
+	gateIsOpen = open;
+	postMessage({
+		gateIsOpen: gateIsOpen
+	});
+}
+
+//Interface
+
+function constructWorker(options){
+	inputSampleRate = options.setup.inputSampleRate || options.setup.ctxInfo.targetSampleRate || options.setup.ctxInfo.sampleRate;
+	inputSampleSize = options.setup.inputSampleSize || 512;
+	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
+	lookbackBufferMs = (options.setup.lookbackBufferMs != undefined)? options.setup.lookbackBufferMs : 0;
+	
+	init();
+    	
+	postMessage({
+		moduleState: 1,
+		moduleInfo: {
+			inputSampleRate: inputSampleRate,
+			inputSampleSize: inputSampleSize,
+			channelCount: channelCount,
+			lookbackBufferSize: _lookbackBufferSize
+		}
+	});
+}
+
+function process(data){
+	//expected: data.samples, data.sampleRate, data.targetSampleRate, data.channels, data.type
+	//TODO: check process values against constructor values (sampleSize etc.)
+	if (data && data.samples){
+		if (_isFirstValidProcess){
+			_isFirstValidProcess = false;
+			console.error("data info", data);		//DEBUG
+			if (data.sampleRate != inputSampleRate){
+				var msg = "Sample-rate mismatch! Should be '" + inputSampleRate + "' is '" + data.sampleRate + "'";
+				console.error("Audio Worker sample-rate exception - Msg.: " + msg);
+				throw new SampleRateException(msg);
+				return;
+			}
+			//check: inputSampleRate, inputSampleSize, channelCount
+		}
+		if (gateIsOpen){
+			//TODO: this will always be one channel ONLY since the signal is interleaved
+			recordedBuffers.push(data.samples[0]);
+			//TODO: add max length
+		}
+	}
+}
+
+function start(options){
+    //TODO: anything to do?
+	//NOTE: timing of this signal is not very well defined
+}
+function stop(options){
+    //TODO: anything to do?
+	//NOTE: timing of this signal is not very well defined
+}
+function reset(options){
+    //TODO: clean up worker
+	init();
+}
+
+//--- helpers ---
+
+function SampleRateException(message) {
+	this.message = message;
+	this.name = "SampleRateException";
+}
 
 function buildBuffer(start, end){
 	//TODO: use start, end
@@ -103,25 +201,18 @@ function buildBuffer(start, end){
 	}
 }
 
-function getBuffer(start, end){
-	//TODO: use start, end
-	var res = buildBuffer(start, end);
-	postMessage({
-		output: {
-			buffer: res.buffer
-		}
-	});
-}
-function getWave(start, end){
-	//TODO: use start, end
-	var res = buildBuffer(start, end);
-	/*
-	var dataLength = res.buffer.length;
+function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
+	if (!samples || !sampleRate || !numChannels){
+		console.error("Wave Encoder Worker - encodeWAV - Missing parameters");
+		return;
+	}
+	/* alternative code:
+	var dataLength = samples.length;
 	var bitDepth = 16;
 	var bytesPerSample = bitDepth/8;
 	
 	var headerLength = 44;
-	var wav = new Uint8Array(headerLength + dataLength);		//TODO: ... and due to size mismatch the rest will be zeros
+	var wav = new Uint8Array(headerLength + dataLength);
 	var view = new DataView(wav.buffer);
 
 	view.setUint32(0, 1380533830, false); 		//RIFF identifier 'RIFF'
@@ -130,10 +221,10 @@ function getWave(start, end){
 	view.setUint32(12, 1718449184, false); 		//format chunk identifier 'fmt '
 	view.setUint32(16, 16, true); 				//format chunk length
 	view.setUint16(20, 1, true); 				//sample format (raw)
-	view.setUint16(22, channelCount, true); 	//channel count
-	view.setUint32(24, inputSampleRate, true); 	//sample rate
-	view.setUint32(28, inputSampleRate * bytesPerSample * channelCount, true);	//byte rate (sample rate * block align)
-	view.setUint16(32, bytesPerSample * channelCount, true); 	//block align (channel count * bytes per sample)
+	view.setUint16(22, numChannels, true); 	//channel count
+	view.setUint32(24, sampleRate, true); 	//sample rate
+	view.setUint32(28, sampleRate * bytesPerSample * numChannels, true);	//byte rate (sample rate * block align)
+	view.setUint16(32, bytesPerSample * numChannels, true); 	//block align (channel count * bytes per sample)
 	view.setUint16(34, bitDepth, true); 		//bits per sample
 	view.setUint32(36, 1684108385, false); 		//data chunk identifier 'data'
 	view.setUint32(40, dataLength, true); 		//data chunk length	- TODO: what does this do and do we need to change it?
@@ -142,16 +233,6 @@ function getWave(start, end){
 		wav.set(recordedBuffers[i], i * recordedBuffers[i].length + headerLength);
 	}
 	*/
-	var view = encodeWAV(res.buffer, inputSampleRate, channelCount, res.isFloat32);
-
-	postMessage({
-		output: {
-			wav: view
-		}
-	});
-}
-
-function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 	var buffer = new ArrayBuffer(44 + samples.length * 2);
 	var view = new DataView(buffer);
 	var bitDepth = 16;
@@ -175,7 +256,7 @@ function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 	}else{
 		let offset = 44;
 		for (let i = 0; i < samples.length; i++, offset += 2) {
-			view.setUint8(offset, samples[i], true);
+			view.setUint8(offset, samples, true);
 		}
 	}
 	return view;
@@ -191,56 +272,19 @@ function wavWriteString(view, offset, string) {
 		view.setUint8(offset + i, string.charCodeAt(i));
 	}
 }
-
-function gateControl(open){
-	gateIsOpen = open;
-	postMessage({
-		gateIsOpen: gateIsOpen
-	});
-}
-
-//Interface
-
-function constructWorker(options){
-	inputSampleRate = options.setup.inputSampleRate || options.setup.ctxInfo.targetSampleRate || 16000;
-	inputSampleSize = options.setup.inputSampleSize || 512;
-	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
-	lookbackBufferMs = (options.setup.lookbackBufferMs != undefined)? options.setup.lookbackBufferMs : 0;
-	
-	init();
-    	
-	postMessage({
-		moduleState: 1,
-		moduleInfo: {
-			inputSampleRate: inputSampleRate,
-			inputSampleSize: inputSampleSize,
-			channelCount: channelCount,
-			lookbackBufferSize: _lookbackBufferSize
-		}
-	});
-}
-
-function process(data){
-	//expected: data.samples, data.sampleRate, data.targetSampleRate, data.channels, data.type
-	//TODO: check process values against constructor values (sampleSize etc.)
-	if (data && data.samples){
-		if (gateIsOpen){
-			//TODO: this will always be one channel ONLY since the signal is interleaved
-			recordedBuffers.push(data.samples[0]);
-			//TODO: add max length
-		}
+function encodeInterface(e){
+	var format = e.format;
+	if (format == "wave"){
+		var samples = e.data.samples[0];		//TODO: MONO only or interleaved stereo in channel 1
+		var view = encodeWAV(samples, e.data.sampleRate, e.data.channels, e.data.isFloat32);
+		postMessage({
+			encoderResult: {
+				wav: view,
+				sampleRate: inputSampleRate,
+				channels: channelCount
+			}
+		});
+	}else{
+		postMessage({encoderResult: {}, error: "format not supported"});
 	}
-}
-
-function start(options){
-    //TODO: anything to do?
-	//NOTE: timing of this signal is not very well defined
-}
-function stop(options){
-    //TODO: anything to do?
-	//NOTE: timing of this signal is not very well defined
-}
-function reset(options){
-    //TODO: clean up worker
-	init();
 }
