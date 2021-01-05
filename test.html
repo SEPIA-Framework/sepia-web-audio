@@ -14,6 +14,8 @@
 	<script src="src/polyfills/audioworklet-polyfill.js"></script>
 	<script type="text/javascript" src="src/processor.js"></script>
 	
+	<!--<script type="text/javascript" src="test-buffer.js"></script>-->
+	
 	<style>
 	* {
 		box-sizing: border-box;
@@ -105,7 +107,7 @@
 </head>
 <body>
 <div id="mainView">
-	<h1>SEPIA Web Audio Recorder</h1>
+	<h1>SEPIA Web Audio Processor</h1>
 	<div id="info">Info: []</div>
 	<div id="status"></div>
 	<div>
@@ -143,9 +145,10 @@
 	</div>
 	<div class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
+		<label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="0" onchange="setWaveEncoderLookback(this);">
 		<label>Gate:</label><div id="waveEncoderGateState">close</div><label>-</label>
-		<label>Controls:</label><button onclick="waveEncoderSetGate('open');">Open Gate</button>
-		<button onclick="waveEncoderSetGate('close');">Close Gate</button>
+		<label>Controls:</label><button onclick="waveEncoderSetGate('open');">Open</button>
+		<button onclick="waveEncoderSetGate('close');">Close</button>
 		<button onclick="waveEncoderGetWave();">Get Wave-File</button>
 		<button onclick="waveEncoderGetBuffer();">Show Buffer</button>
 	</div>
@@ -217,6 +220,9 @@
 	var rec;
 	var targetSampleRate = 16000;
 	
+	//set correct modules folder
+	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+	
 	async function createRecorder(btn){
 		//audio source
 		var useWhiteNoiseTest = false; //document.getElementById("useWhiteNoiseRecorder").checked;
@@ -237,9 +243,6 @@
 			//default: mic
 		}
 		
-		//set correct modules folder
-		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
-		
 		//create processor modules
 		var volumeMeter = {
 			name: 'volume-meter',
@@ -254,9 +257,9 @@
 			}
 		};
 		var resampler = {
-			name: 'buffer-switch', //'resample-switch',
+			name: 'resample-switch', //'buffer-switch',
 			setup: {
-				onmessage: "", //setVolume2,
+				onmessage: testBuffer,
 				sendToModules: [3],		//index as given to processor - 0: source, 1: volume-meter, 2: resample-switch, 3: wave-encoder
 				options: {
 					processorOptions: {
@@ -279,7 +282,7 @@
 					setup: {
 						inputSampleRate: resamplerSampleRate,	//output sampleRate of previous module, if undefined take targetSampleRate
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
-						lookbackBufferMs: 0
+						lookbackBufferMs: waveEncoderLookback
 					}
 				}
 			}
@@ -374,6 +377,7 @@
 		resamplerQuality = +inputEle.value;
 	}
 	
+	var waveEncoderLookback = 0;
 	function waveEncoderSetGate(state){
 		window.waveEncoder.handle.sendToModule({gate: state});
 		document.getElementById('waveEncoderGateState').textContent = state;
@@ -384,30 +388,36 @@
 	function waveEncoderGetBuffer(){
 		window.waveEncoder.handle.sendToModule({request: {get: "buffer"}});
 	}
+	function setWaveEncoderLookback(ele){
+		waveEncoderLookback = +ele.value;
+	}
 	function waveEncoderMessage(data){
 		console.error("wave-encoder", data);
 		if (data.output && data.output.wav){
 			addWaveToPage(data.output.wav);
 			
 		}else if (data.output && data.output.buffer){
-			var ele = addChartContainerToPage();
-			var x = uPlot.lazy.createSequence(0, data.output.buffer.length);
-			var y = data.output.buffer;
-			uPlot.lazy.plot({
-				targetElement: ele,
-				showPoints: false,
-				strokeWidth: 1,
-				data: [x, y]
-			});
+			plotBufferToPage(data.output.buffer);
 		}
 	}
-	function addWaveToPage(wavAudio){
+	function addWaveToPage(wavAudio, targetEle){
 		var audioEle = document.createElement("audio");
 		audioEle.src = window.URL.createObjectURL(new Blob([wavAudio], { type: "audio/wav" }));
 		audioEle.setAttribute("controls", "controls");
 		var audioBox = document.createElement("div");
 		audioBox.appendChild(audioEle);
-		document.body.appendChild(audioBox);
+		if (!targetEle) targetEle = document.getElementById("mainView") || document.body;
+		targetEle.appendChild(audioBox);
+	}
+	function plotBufferToPage(buffer){
+		var ele = addChartContainerToPage();
+		var x = uPlot.lazy.createSequence(0, buffer.length);
+		uPlot.lazy.plot({
+			targetElement: ele,
+			showPoints: false,
+			strokeWidth: 1,
+			data: [x, buffer]
+		});
 	}
 	
 	function setVolume1(data){
@@ -460,6 +470,22 @@
 		
 	function debugInfo(source, data){
 		console.log(source, data);
+	}
+	
+	function testBuffer(data){
+		if (data.rms){
+			setVolume2(data);
+		}
+		if (data.test){
+			console.error("test", data.test);
+			window.newBuff = data.test;
+			if (data.sampleRate){
+				SepiaFW.webAudio.encodeWaveBuffer(window.newBuff, data.sampleRate, data.channels || 1, true, function(r){
+					addWaveToPage(r.wav);
+					plotBufferToPage(data.test);
+				});
+			}
+		}
 	}
 </script>
 </body>
