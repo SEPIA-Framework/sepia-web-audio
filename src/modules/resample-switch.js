@@ -1,6 +1,7 @@
 //import { RingBuffer } from './shared/ring-buffer.js';		//not yet supported by FF :-( (Dec 2020)
 class RingBuffer{constructor(a,b,c){this._readIndex=0,this._writeIndex=0,this._framesAvailable=0,this._channelCount=b,this._length=a,this._channelData=[];for(let d=0;d<this._channelCount;++d)this._channelData[d]="Uint16"==c?new Uint16Array(a):"Int16"==c?new Int16Array(a):"Uint8"==c?new Uint8Array(a):"Int8"==c?new Int8Array(a):new Float32Array(a)}get framesAvailable(){return this._framesAvailable}push(a){let b=a[0].length;for(let c,d=0;d<b;++d){c=(this._writeIndex+d)%this._length;for(let b=0;b<this._channelCount;++b)this._channelData[b][c]=a[b][d]}this._writeIndex+=b,this._writeIndex>=this._length&&(this._writeIndex=0),this._framesAvailable+=b,this._framesAvailable>this._length&&(this._framesAvailable=this._length)}pull(a){if(0!==this._framesAvailable){let b=a[0].length;for(let c,d=0;d<b;++d){c=(this._readIndex+d)%this._length;for(let b=0;b<this._channelCount;++b)a[b][d]=this._channelData[b][c]}this._readIndex+=b,this._readIndex>=this._length&&(this._readIndex=0),this._framesAvailable-=b,0>this._framesAvailable&&(this._framesAvailable=0)}}};
-class SpeexResampler{constructor(a,b,c,d=7){this.channels=a,this.inRate=b,this.outRate=c,this.quality=d,this._inBufferPtr=-1,this._inBufferSize=-1,this._outBufferPtr=-1,this._outBufferSize=-1,this._inLengthPtr=-1,this._outLengthPtr=-1}processChunk(a){if(!speexModule)throw new Error("You need to wait for SpeexResampler.initPromise before calling this method");if(0!=a.length%(this.channels*Uint16Array.BYTES_PER_ELEMENT))throw new Error("Chunk length should be a multiple of channels * 2 bytes");if(!this._resamplerPtr){const a=speexModule._malloc(4);this._resamplerPtr=speexModule._speex_resampler_init(this.channels,this.inRate,this.outRate,this.quality,a);const b=speexModule.getValue(a,"i32");if(0!==b)throw new Error(speexModule.AsciiToString(speexModule._speex_resampler_strerror(b)));this._inLengthPtr=speexModule._malloc(Uint32Array.BYTES_PER_ELEMENT),this._outLengthPtr=speexModule._malloc(Uint32Array.BYTES_PER_ELEMENT)}this._inBufferSize<a.length&&(-1!==this._inBufferPtr&&speexModule._free(this._inBufferPtr),this._inBufferPtr=speexModule._malloc(a.length),this._inBufferSize=a.length);const b=Math.ceil(a.length*this.outRate/this.inRate);this._outBufferSize<b&&(-1!==this._outBufferPtr&&speexModule._free(this._outBufferPtr),this._outBufferPtr=speexModule._malloc(b),this._outBufferSize=b),speexModule.setValue(this._inLengthPtr,a.length/this.channels/Uint16Array.BYTES_PER_ELEMENT,"i32"),speexModule.HEAPU8.set(a,this._inBufferPtr),speexModule.setValue(this._outLengthPtr,this._outBufferSize/this.channels/Uint16Array.BYTES_PER_ELEMENT,"i32");const c=speexModule._speex_resampler_process_interleaved_int(this._resamplerPtr,this._inBufferPtr,this._inLengthPtr,this._outBufferPtr,this._outLengthPtr);if(0!==c)throw new Error(speexModule.AsciiToString(speexModule._speex_resampler_strerror(c)));const d=speexModule.getValue(this._outLengthPtr,"i32");return new Uint8Array(speexModule.HEAPU8.slice(this._outBufferPtr,this._outBufferPtr+d*this.channels*Uint16Array.BYTES_PER_ELEMENT).buffer)}};
+class SpeexResampler{constructor(a,b,c,d=7){this.channels=a,this.inRate=b,this.outRate=c,this.quality=d,this._inBufferPtr=-1,this._inBufferSize=-1,this._outBufferPtr=-1,this._outBufferSize=-1,this._inLengthPtr=-1,this._outLengthPtr=-1}processChunk(a){if(!speexModule)throw new Error("You need to wait for SpeexResampler.initPromise before calling this method");if(0!=a.constructor.name.indexOf("Int16Array"))throw new Error("Chunk format has to be 'Int16Array'");else a=new Uint8Array(a.buffer);if(0!=a.length%(this.channels*Uint16Array.BYTES_PER_ELEMENT))throw new Error("Chunk length should be a multiple of channels * 2 bytes");if(!this._resamplerPtr){const a=speexModule._malloc(4);this._resamplerPtr=speexModule._speex_resampler_init(this.channels,this.inRate,this.outRate,this.quality,a);const b=speexModule.getValue(a,"i32");if(0!==b)throw new Error(speexModule.AsciiToString(speexModule._speex_resampler_strerror(b)));this._inLengthPtr=speexModule._malloc(Uint32Array.BYTES_PER_ELEMENT),this._outLengthPtr=speexModule._malloc(Uint32Array.BYTES_PER_ELEMENT)}this._inBufferSize<a.length&&(-1!==this._inBufferPtr&&speexModule._free(this._inBufferPtr),this._inBufferPtr=speexModule._malloc(a.length),this._inBufferSize=a.length);const b=Math.ceil(a.length*this.outRate/this.inRate);this._outBufferSize<b&&(-1!==this._outBufferPtr&&speexModule._free(this._outBufferPtr),this._outBufferPtr=speexModule._malloc(b),this._outBufferSize=b),speexModule.setValue(this._inLengthPtr,a.length/this.channels/Uint16Array.BYTES_PER_ELEMENT,"i32"),speexModule.HEAPU8.set(a,this._inBufferPtr),speexModule.setValue(this._outLengthPtr,this._outBufferSize/this.channels/Uint16Array.BYTES_PER_ELEMENT,"i32");const c=speexModule._speex_resampler_process_interleaved_int(this._resamplerPtr,this._inBufferPtr,this._inLengthPtr,this._outBufferPtr,this._outLengthPtr);if(0!==c)throw new Error(speexModule.AsciiToString(speexModule._speex_resampler_strerror(c)));const d=speexModule.getValue(this._outLengthPtr,"i32");return new Int16Array(speexModule.HEAPU8.slice(this._outBufferPtr,this._outBufferPtr+d*this.channels*Uint16Array.BYTES_PER_ELEMENT).buffer)}}
+
 var speexModule;
 
 class ResampleProcessor extends AudioWorkletProcessor {
@@ -44,7 +45,7 @@ class ResampleProcessor extends AudioWorkletProcessor {
 		this.sourceSamplerate = options.processorOptions.ctxInfo.sampleRate;	//INFO: should be same as global scope 'sampleRate'
 
 		this.targetSampleRate = options.processorOptions.targetSampleRate || options.processorOptions.ctxInfo.targetSampleRate || 16000;
-		this.resampleQuality = options.processorOptions.resampleQuality || 7;	//number from 1 to 10, 1 is fast but of bad quality, 10 is slow but best quality (less noise/aliasing, a higher complexity and a higher latency)
+		this.resampleQuality = (options.processorOptions.resampleQuality != undefined)? options.processorOptions.resampleQuality : 7;	//number from 1 to 10, 1 is fast but of bad quality, 10 is slow but best quality (less noise/aliasing, a higher complexity and a higher latency)
 		this.emitterBufferSize = options.processorOptions.bufferSize || 512;
 		this.channelCount = 1; //options.processorOptions.channels || 1;		//TODO: supports ONLY MONO atm
 		this._bytesPerSample = 2;			//for buffer (aka Xint8 Array) length is in bytes (8bit), so *2 to get 16bit length;
@@ -59,7 +60,7 @@ class ResampleProcessor extends AudioWorkletProcessor {
 		function init(){
 			//RingBuffers - alloc. space for emitter + 1 frame overhead
 			//that._inputRingBuffer = new RingBuffer(that.collectorBufferSize + that.EXPECTED_SAMPLE_SIZE, that.channelCount);
-			that._outputRingBuffer = new RingBuffer(that.emitterBufferSize, that.channelCount, "Uint8");
+			that._outputRingBuffer = new RingBuffer(that.emitterBufferSize, that.channelCount, "Int16");
 
 			//Input and output (for each channel) - TODO: set size, one for each channel
 			//that._newInputBuffer = [new Float32Array(that.collectorBufferSize)];
@@ -68,7 +69,7 @@ class ResampleProcessor extends AudioWorkletProcessor {
 				//NOTE: we could use DataView instead
 				//let buffer = new ArrayBuffer(that.EXPECTED_SAMPLE_SIZE * that.channelCount * that._bytesPerSample);
 				//let that._inputDataView = new DataView(buffer);
-			that._newOutputBuffer = [new Uint8Array(that.emitterBufferSize)];
+			that._newOutputBuffer = [new Int16Array(that.emitterBufferSize)];
 			
 			that._isFirstValidProcess = true;
 			//that._lastEmit = 0;
@@ -77,6 +78,26 @@ class ResampleProcessor extends AudioWorkletProcessor {
 			that._emitterSamples = 0;
 		}
 		init();
+		
+		this.floatTo16BitInterleavedPCM = function(inFloat32, outInt16, i){
+			//TODO: if not MONO interleave channels - requires: UInt8Array !!!
+			/*
+			for (let channel = 0; channel < that.channelCount; channel++){
+				//pass through original
+				output[channel][i] = inFloat32[channel][i];
+				//clip and floatTo16BitPCM
+				let sampleVal = Math.max(-1, Math.min(1, inFloat32[channel][i])) * 32767.5 - 0.5;
+				//assign
+				let outputIndex = (i * that.channelCount + channel) * that._bytesPerSample;
+				that._newInputBuffer[channel][outputIndex] = sampleVal;
+				that._newInputBuffer[channel][outputIndex + 1] = sampleVal >> 8;
+			}
+			*/
+				
+			let sampleVal = Math.max(-1, Math.min(1, inFloat32[0][i]));		//we need -1 to 1 - If this is the first processor we could skip clipping
+			//that._inputDataView.setInt16(i * 2, sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7FFF, true);	// 16-bit signed range is -32768 to 32767, littleEndian byte order.
+			outInt16[0][i] = sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7FFF;
+		}
 		
 		function ready(){
 			//use new resampler for every instance - it keeps data from previous calls to improve the resampling
@@ -126,6 +147,37 @@ class ResampleProcessor extends AudioWorkletProcessor {
 			init();
 		}
 		
+		//on-request resampling
+		function resampleRequest(req){
+			var samples = req.samples;
+			var int16Buffer;
+			if (req.isInt16){
+				int16Buffer = samples;
+			}else{
+				var sampleSize = samples[0].length;
+				int16Buffer = [new Int16Array(sampleSize)];		//TODO: MONO
+				for (let i = 0; i < sampleSize; ++i){
+					that.floatTo16BitInterleavedPCM(samples, int16Buffer, i);
+				}
+			}
+			if (that.resamplingMode){
+				var processed = that.resampler.processChunk(int16Buffer[0]);
+				that.port.postMessage({
+					resampleResult: {
+						//test: int16Buffer,		//DEBUG
+						samples: [processed],
+						sampleRate: that.targetSampleRate,
+						channels: that.channelCount
+					}
+				});
+			}else{
+				that.port.postMessage({
+					error: "No resampling required. Skipped process!",
+					resampleResult: {}
+				});
+			}
+		}
+		
 		//Control messages
 		this.port.onmessage = function(e){
 			if (e.data.ctrl){
@@ -145,6 +197,9 @@ class ResampleProcessor extends AudioWorkletProcessor {
 						console.log("Unknown control message:", e.data);
 						break;
 				}
+			}else if (e.data.resample){
+				//custom interface
+				resampleRequest(e.data.resample);
 			}
         }
 		
@@ -190,35 +245,19 @@ class ResampleProcessor extends AudioWorkletProcessor {
 			let sqrSum = 0;
 			for (let i = 0; i < inputSampleSize; ++i){
 				
-				//TODO: if not MONO interleave channels - requires: UInt8Array !!!
-				/*
-				for (let channel = 0; channel < this.numberOfChannels; channel++){
-					//pass through original
-					output[channel][i] = input[channel][i];
-					//clip and floatTo16BitPCM
-					let sampleVal = Math.max(-1, Math.min(1, input[channel][i])) * 32767.5 - 0.5;
-					//assign
-					let outputIndex = (i * this.channelCount + channel) * this._bytesPerSample;
-					this._newInputBuffer[channel][outputIndex] = sampleVal;
-					this._newInputBuffer[channel][outputIndex + 1] = sampleVal >> 8;
-				}
-				*/
-				
-				//floatTo16BitPCM
-				let sampleVal = Math.max(-1, Math.min(1, input[0][i]));		//we need -1 to 1 - If this is the first processor we could skip clipping
-                //this._inputDataView.setInt16(i * 2, sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7FFF, true);	// 16-bit signed range is -32768 to 32767, littleEndian byte order.
-				this._newInputBuffer[0][i] = sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7FFF;
+				//float to 16Bit interleaved PCM
+				this.floatTo16BitInterleavedPCM(input, this._newInputBuffer, i);
 				
 				//pass through
 				if (this.passThroughMode == 2){
 					output[0][i] = this._newInputBuffer[0][i];	//16Bit PCM
 				}else if (this.passThroughMode == 1){
-					output[0][i] = sampleVal;					//original (float32)
+					output[0][i] = input[0][i];					//original (float32)
 				}
 				
 				//calc. sum for RMS
 				if (this.calculateRmsVolume){
-					this._emitterSqrSum += (sampleVal ** 2);
+					this._emitterSqrSum += (input[0][i] ** 2);
 				}
 			}
 			this._emitterSamples += inputSampleSize;
@@ -229,7 +268,7 @@ class ResampleProcessor extends AudioWorkletProcessor {
 				let processed = this.resampler.processChunk(this._newInputBuffer[0]);
 				this._outputRingBuffer.push([processed]);				//TODO: is MONO
 			}else{
-				this._outputRingBuffer.push([this._newInputBuffer[0]]);	//TODO: is MONO	- TODO: this needs to be Uint8Array
+				this._outputRingBuffer.push([this._newInputBuffer[0]]);	//TODO: is MONO
 			}
 			
 			//Process if we have enough frames for the kernel.
