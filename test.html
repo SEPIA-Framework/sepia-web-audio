@@ -14,7 +14,8 @@
 	<script src="src/polyfills/audioworklet-polyfill.js"></script>
 	<script type="text/javascript" src="src/processor.js"></script>
 	
-	<!--<script type="text/javascript" src="test-buffer.js"></script>-->
+	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
+	<script type="text/javascript" src="test-buffer.js"></script>
 	
 	<style>
 	* {
@@ -486,6 +487,47 @@
 				});
 			}
 		}
+	}
+	function testResampler(obj, quality){
+		if (!obj) obj = {};
+		if (!quality) quality = 0;
+		var smallBuff;
+		var smallBuffRes;
+		SepiaFW.webAudio.readFileAsBuffer("test-sounds/chatter_counting.wav", function(arrayBuffer){
+			var buff = new Int16Array(arrayBuffer); //new Uint8Array(arrayBuffer);
+			//var buff = new Int16Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
+			//buff = buff.map(function(num){ return (num / 17) * 32767; });
+			buff = buff.slice(40000, 60000);
+			//smallBuff = buff.slice(40000, 60000);
+			smallBuff = buff;
+			/*smallBuff = pcmConvert(buff, {
+				channels: 1,
+				interleaved: false,
+				dtype: 'int16',
+				endianness: 'le'
+			}, {
+				dtype: 'int8'
+			});*/
+			plotBufferToPage(smallBuff);
+			SepiaFW.webAudio.resampleBufferWasm(smallBuff, 24000, 16000, 1, quality, function(r){
+				smallBuffRes = r.samples[0];
+				/*smallBuffRes = pcmConvert(r.samples[0], {
+					channels: 1,
+					interleaved: false,
+					dtype: 'uint8',
+					endianness: 'le'
+				}, {
+					channels: 1,
+					interleaved: false,
+					dtype: 'float32',
+					endianness: 'le'
+				});*/
+				plotBufferToPage(smallBuffRes);
+				obj.a = smallBuff;
+				obj.b = smallBuffRes;
+			});
+		}, console.error);
+		return obj;
 	}
 </script>
 </body>
