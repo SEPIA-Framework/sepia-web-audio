@@ -185,7 +185,7 @@ if (!(typeof SepiaFW == "object")){
 					if (typeof module == "object"){
 						moduleType = ((module.type && module.type == "worker") || module.isWorker)? 2 : 1; 	//1: AudioWorklet, 2: Web Worker
 						moduleName = module.name;
-						moduleSetup = module.setup;
+						moduleSetup = module.setup || module.settings;
 					}else{
 						moduleType = 1;
 						moduleName = module;
@@ -566,13 +566,8 @@ if (!(typeof SepiaFW == "object")){
 					function errorCallback(err){
 						reject(err);
 					}
-					if (SepiaFW && SepiaFW.files){
-						//more robust method
-						SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer");
-					}else{
-						//fallback
-						xmlHttpCallForArrayBuffer(fileUrl, successCallback, errorCallback);
-					}
+					WebAudio.readFileAsBuffer(fileUrl, successCallback, errorCallback);
+					
 				}catch (err){
 					reject(err);
 				}
@@ -602,22 +597,80 @@ if (!(typeof SepiaFW == "object")){
 					isFloat32: isFloat32
 				}}});
 			}else if (e.data.encoderResult){
+				encoderWorker.terminate();
 				if (e.data.error){
 					errorCallback({name: "EncoderError", message: e.data.error});
 				}else{
 					successCallback(e.data.encoderResult);
 				}
-				encoderWorker.terminate();
 			}
 		};
 		encoderWorker.onerror = function(err){
-			errorCallback(err);
 			encoderWorker.terminate();
+			errorCallback(err);
 		}
 		encoderWorker.postMessage({ctrl: {action: "construct", options: options}});
 	}
 	
+	//WASM resampler
+	WebAudio.resampleBufferWasm = function(buffer, inputSampleRate, targetSampleRate, channels, quality, successCallback, errorCallback){
+		if (!successCallback) successCallback = console.log;
+		if (!errorCallback) errorCallback = console.error;
+		try {
+			var offlineAudioContext = new OfflineAudioContext(channels, buffer.length, inputSampleRate);	//we just need this to setup the module
+			var moduleFolder = WebAudio.defaultProcessorOptions.moduleFolder.replace(/\/$/, "") + "/";
+			var moduleName = "resample-switch";
+			offlineAudioContext.audioWorklet.addModule(moduleFolder + moduleName + ".js").then(function(){
+				var options = {
+					processorOptions: {
+						ctxInfo: {
+							sampleRate: inputSampleRate
+						},
+						targetSampleRate: targetSampleRate,
+						resampleQuality: quality, 		//1-10
+						bufferSize: buffer.length
+						//passThroughMode: 1,
+						//calculateRmsVolume: true
+					}
+				};
+				var processNode = new AudioWorkletNode(offlineAudioContext, moduleName, options);
+				processNode.port.onmessage = function(e){
+					if (e.data.moduleState == 1){
+						processNode.port.postMessage({resample: {
+							samples: [buffer],
+							isInt16: true
+						}});
+					}else if (e.data.resampleResult){
+						offlineAudioContext = null;
+						if (e.data.error){
+							errorCallback({name: "ResampleError", message: e.data.error});
+						}else{
+							successCallback(e.data.resampleResult);
+						}
+					}
+				};
+				processNode.onprocessorerror = function(err){
+					offlineAudioContext = null;
+					errorCallback(err);
+				};
+			});
+		}catch(err){
+			errorCallback(err);
+		}
+	}
+	
 	//Commons
+	
+	//File reader
+	WebAudio.readFileAsBuffer = function(fileUrl, successCallback, errorCallback){
+		if (SepiaFW && SepiaFW.files){
+			//more robust method
+			SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer");
+		}else{
+			//fallback
+			xmlHttpCallForArrayBuffer(fileUrl, successCallback, errorCallback);
+		}
+	}
 	
 	//fallback for: SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer");
 	function xmlHttpCallForArrayBuffer(fileUrl, successCallback, errorCallback){
