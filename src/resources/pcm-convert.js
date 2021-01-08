@@ -1,18 +1,17 @@
 //original: https://github.com/audiojs/pcm-convert
-function convert(buffer, from, to, target) {
-
-	/*from = {
-		channels: 2,
-		interleaved: false,
-		dtype: 'float32',
-		endianness: 'le'
-	}*/
-	/*to = {
-		channels: 1,
-		interleaved: true,
-		dtype: 'uint8',
-		endianness: 'le'
-	}*/
+function pcmConvert(buffer, fromPartial, toPartial, target) {
+	var from = {
+		channels: fromPartial.channels || 1,
+		interleaved: fromPartial.interleaved || false,
+		dtype: fromPartial.dtype || 'float32',
+		endianness: fromPartial.endianness || 'le'
+	}
+	to = {
+		channels: toPartial.channels || from.channels,
+		interleaved: toPartial.interleaved || from.interleaved,
+		dtype: toPartial.dtype || from.dtype,
+		endianness: toPartial.endianness || from.endianness
+	}
 	
 	to.type = to.dtype;
 	from.type = from.dtype;
@@ -40,12 +39,11 @@ function convert(buffer, from, to, target) {
 	//if range differ, we should apply more thoughtful mapping
 	if (from.max !== to.max) {
 		var fromRange = from.max - from.min, toRange = to.max - to.min;
-		for (var i = 0, l = src.length; i < l; i++) {
-			var value = src[i];
-
+		for (let i = 0, l = src.length; i < l; i++) {
+			let value = src[i];
 			//ignore not changed range
 			//bring to 0..1
-			var normalValue = (value - from.min) / fromRange;
+			let normalValue = (value - from.min) / fromRange;
 
 			//bring to new format ranges
 			value = normalValue * toRange + to.min;

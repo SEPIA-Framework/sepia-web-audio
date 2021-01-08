@@ -179,7 +179,7 @@ function buildBuffer(start, end){
 		_lookbackRingBuffer.pull(lookbackSamples);
 	}
 	var dataLength = recordedBuffers.length * inputSampleSize + (lookbackSamples? lookbackSamples[0].length : 0);
-	var collectBuffer = isFloat32? new Float32Array(dataLength) : new Uint8Array(dataLength); 	//TODO: this is usually too big because the last buffer is not full ...
+	var collectBuffer = isFloat32? new Float32Array(dataLength) : new Int16Array(dataLength); 	//TODO: this is usually too big because the last buffer is not full ...
 	var n = 0;
 	if (lookbackSamples){
 		for (let i = 0; i < lookbackSamples[0].length; i++) {
@@ -256,15 +256,15 @@ function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 	}else{
 		let offset = 44;
 		for (let i = 0; i < samples.length; i++, offset += 2) {
-			view.setUint8(offset, samples, true);
+			view.setInt16(offset, samples[i], true);
 		}
 	}
 	return view;
 }
-function wavFloatTo16BitPCM(output, offset, input) {
+function wavFloatTo16BitPCM(view, offset, input) {
 	for (let i = 0; i < input.length; i++, offset += 2) {
 		let s = Math.max(-1, Math.min(1, input[i]));
-		output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+		view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
 	}
 }
 function wavWriteString(view, offset, string) {

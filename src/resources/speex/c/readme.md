@@ -1,1 +1,1 @@
-This was copied from https://git.xiph.org/speexdsp.git.
+This was copied from https://github.com/xiph/speexdsp/tree/master/libspeexdsp
