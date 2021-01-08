@@ -23,12 +23,18 @@ class SpeexResampler {
     }
     /**
       * Resample a chunk of audio.
-      * @param chunk interleaved PCM data in signed 16bits int
+      * @param chunk interleaved PCM data in signed 16bits int (Int16Array)
       */
     processChunk(chunk) {
         if (!speexModule) {
             throw new Error('You need to wait for SpeexResampler.initPromise before calling this method');
         }
+		// Check and set the correct view on the expected Int16Array
+		if (chunk.constructor.name.indexOf("Int16Array") != 0) {
+            throw new Error("Chunk format has to be 'Int16Array'");
+        }else{
+			chunk = new Uint8Array(chunk.buffer);	//TODO: I've tried to simply set 'speexModule.HEAP16' (see below) but it gives no result ...
+		}
         // We check that we have as many chunks for each channel and that the last chunk is full (2 bytes)
         if (chunk.length % (this.channels * Uint16Array.BYTES_PER_ELEMENT) !== 0) {
             throw new Error('Chunk length should be a multiple of channels * 2 bytes');
@@ -72,7 +78,7 @@ class SpeexResampler {
         }
         const outSamplesPerChannelsWritten = speexModule.getValue(this._outLengthPtr, 'i32');
         // we are copying the info in a new buffer here, we could just pass a buffer pointing to the same memory space if needed
-        return new Uint8Array(speexModule.HEAPU8.slice(this._outBufferPtr, this._outBufferPtr + outSamplesPerChannelsWritten * this.channels * Uint16Array.BYTES_PER_ELEMENT).buffer);
+        return new Int16Array(speexModule.HEAPU8.slice(this._outBufferPtr, this._outBufferPtr + outSamplesPerChannelsWritten * this.channels * Uint16Array.BYTES_PER_ELEMENT).buffer);
     }
 }
 SpeexResampler.initPromise = globalModulePromise;
