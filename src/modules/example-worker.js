@@ -21,6 +21,10 @@ onmessage = function(e) {
 			case "reset":
 				reset(e.data.ctrl.options);
 				break;
+			case "release":
+			case "close":
+				release(e.data.ctrl.options);
+				break;
 			default:
 				console.log("Unknown control message:", e.data);
 				break;
@@ -57,6 +61,10 @@ function stop(options) {
 	//NOTE: timing of this signal is not very well defined, use only for gating or similar stuff!
 }
 function reset(options) {
-    //TODO: clean up worker
+    //TODO: clean up worker and prep. for restart
 	exampleInputBuffer = [];
+}
+function release(options){
+	//TODO: clean up worker and close
+	exampleInputBuffer = null;
 }

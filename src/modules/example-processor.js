@@ -47,6 +47,10 @@ class ExampleProcessor extends AudioWorkletProcessor {
 		function reset(options){
 			//reset processor
 		}
+		//release (alias: close)
+		function release(options){
+			//clean-up processor
+		}
 		
 		//Control interface
 		this.port.onmessage = function(e){
@@ -62,8 +66,12 @@ class ExampleProcessor extends AudioWorkletProcessor {
 					case "reset":
 						reset(e.data.ctrl.options);
 						break;
+					case "release":
+					case "close":
+						release(e.data.ctrl.options);
+						break;
 					default:
-						console.log("Unknown control message:", e.data);
+						console.error("Unknown control message:", e.data);
 						break;
 				}
 			}

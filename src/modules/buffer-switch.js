@@ -84,6 +84,10 @@ class BufferProcessor extends AudioWorkletProcessor {
 			//TODO: implement
 			init();
 		}
+		function release(options){
+			that._outputRingBuffer = null;
+			that._newOutputBuffer = null;
+		}
 		
 		//Control messages
 		this.port.onmessage = function(e){
@@ -100,8 +104,12 @@ class BufferProcessor extends AudioWorkletProcessor {
 					case "reset":
 						reset(e.data.ctrl.options);
 						break;
+					case "release":
+					case "close":
+						release(e.data.ctrl.options);
+						break;
 					default:
-						console.log("Unknown control message:", e.data);
+						console.error("Unknown control message:", e.data);
 						break;
 				}
 			}
@@ -136,7 +144,7 @@ class BufferProcessor extends AudioWorkletProcessor {
 					output[0][i] = input[0][i];
 				}
 			}
-			this._outputRingBuffer.push([input[0]]);	//TODO: is MONO
+			this._outputRingBuffer.push([input[0]]);	//TODO: is MONO - should we convert to Int16?
 						
 			//Process if we have enough frames for the kernel.
 			if (this._outputRingBuffer.framesAvailable >= this.emitterBufferSize) {

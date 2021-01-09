@@ -146,6 +146,13 @@ class ResampleProcessor extends AudioWorkletProcessor {
 			//TODO: implement
 			init();
 		}
+		function release(options){
+			//destroy
+			that._outputRingBuffer = null;
+			that._newInputBuffer = null;
+			that._newOutputBuffer = null;
+			that.resampler = null;
+		}
 		
 		//on-request resampling
 		function resampleRequest(req){
@@ -193,8 +200,12 @@ class ResampleProcessor extends AudioWorkletProcessor {
 					case "reset":
 						reset(e.data.ctrl.options);
 						break;
+					case "release":
+					case "close":
+						release(e.data.ctrl.options);
+						break;
 					default:
-						console.log("Unknown control message:", e.data);
+						console.error("Unknown control message:", e.data);
 						break;
 				}
 			}else if (e.data.resample){

@@ -68,7 +68,7 @@ class SpeexResampler {
         }
         // number of samples per channel in input buffer
         speexModule.setValue(this._inLengthPtr, chunk.length / this.channels / Uint16Array.BYTES_PER_ELEMENT, 'i32');
-        // Copying the info from the input Buffer in the WASM memory space
+        // Copying the info from the input Buffer in the WASM memory space - could be optimized? https://programmer.ink/think/webassembly-array-passing-input.html
         speexModule.HEAPU8.set(chunk, this._inBufferPtr);
         // number of samples per channels available in output buffer
         speexModule.setValue(this._outLengthPtr, this._outBufferSize / this.channels / Uint16Array.BYTES_PER_ELEMENT, 'i32');
