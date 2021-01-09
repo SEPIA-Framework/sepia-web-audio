@@ -21,8 +21,12 @@ onmessage = function(e) {
 			case "reset":
 				reset(e.data.ctrl.options);
 				break;
+			case "release":
+			case "close":
+				release(e.data.ctrl.options);
+				break;
 			default:
-				console.log("Unknown control message:", e.data);
+				console.error("Unknown control message:", e.data);
 				break;
 		}
 	}
@@ -54,17 +58,24 @@ let inputSampleSize;
 let channelCount;
 
 let lookbackBufferMs;
+let lookbackBufferNeedsReset;
 let _lookbackBufferSize;
 let _lookbackRingBuffer;
 let recordedBuffers;
+let recordBufferMaxN;
 
 let gateIsOpen = false;
 let _isFirstValidProcess = true;
 
 function init(){
+	recordedBuffers = null;
+	_lookbackRingBuffer = null;
+	lookbackBufferNeedsReset = false;
 	if (lookbackBufferMs){
 		_lookbackBufferSize = Math.round((lookbackBufferMs/1000) * inputSampleRate);
-		_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, "Uint8");	//TODO: test for Float32
+		_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, "Int16");	//TODO: test for Float32
+	}else{
+		_lookbackBufferSize = 0;
 	}
 	recordedBuffers = [];
 	_isFirstValidProcess = true;
@@ -98,7 +109,9 @@ function getWave(start, end){
 function gateControl(open){
 	gateIsOpen = open;
 	postMessage({
-		gateIsOpen: gateIsOpen
+		gate: {
+			isOpen: gateIsOpen
+		}
 	});
 }
 
@@ -110,6 +123,17 @@ function constructWorker(options){
 	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
 	lookbackBufferMs = (options.setup.lookbackBufferMs != undefined)? options.setup.lookbackBufferMs : 0;
 	
+	if (options.setup.recordBufferLimitMs != undefined){
+		recordBufferMaxN = (inputSampleRate * options.setup.recordBufferLimitMs/1000) / inputSampleSize;
+	}else if (options.setup.recordBufferLimitKb != undefined){
+		recordBufferMaxN = (options.setup.recordBufferLimitKb * 1024) / (2 * inputSampleSize);
+	}else{
+		recordBufferMaxN = 5242880 / (2 * inputSampleSize);	//max 5MB = (5242880[bytes]/(bytesPerSample * sampleSize))
+	}
+	recordBufferMaxN = Math.ceil(recordBufferMaxN);
+	
+	//TODO: add stream output option
+	
 	init();
     	
 	postMessage({
@@ -118,7 +142,9 @@ function constructWorker(options){
 			inputSampleRate: inputSampleRate,
 			inputSampleSize: inputSampleSize,
 			channelCount: channelCount,
-			lookbackBufferSize: _lookbackBufferSize
+			lookbackBufferSizeKb: Math.ceil((_lookbackBufferSize * 2)/1024),	//1 sample = 2 bytes
+			lookbackLimitMs: lookbackBufferMs,
+			recordLimitMs: Math.ceil((recordBufferMaxN * inputSampleSize * 1000)/inputSampleRate)
 		}
 	});
 }
@@ -141,7 +167,15 @@ function process(data){
 		if (gateIsOpen){
 			//TODO: this will always be one channel ONLY since the signal is interleaved
 			recordedBuffers.push(data.samples[0]);
-			//TODO: add max length
+			//max length
+			if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
+				gateControl(false);
+			}
+			if (!lookbackBufferNeedsReset) lookbackBufferNeedsReset = true;
+			
+		}else if (lookbackBufferMs && !lookbackBufferNeedsReset){
+			//do this only until gate was opened .. then wait for buffer export/clear
+			_lookbackRingBuffer.push(data.samples);
 		}
 	}
 }
@@ -157,6 +191,12 @@ function stop(options){
 function reset(options){
     //TODO: clean up worker
 	init();
+}
+function release(options){
+	//clean up worker and close
+	_lookbackRingBuffer = null;
+	recordedBuffers = null;
+	gateIsOpen = false;
 }
 
 //--- helpers ---
@@ -175,7 +215,7 @@ function buildBuffer(start, end){
 	}
 	var lookbackSamples;
 	if (_lookbackRingBuffer && _lookbackRingBuffer.framesAvailable){
-		lookbackSamples = [new Uint8Array(_lookbackRingBuffer.framesAvailable)];
+		lookbackSamples = [new Int16Array(_lookbackRingBuffer.framesAvailable)];
 		_lookbackRingBuffer.pull(lookbackSamples);
 	}
 	var dataLength = recordedBuffers.length * inputSampleSize + (lookbackSamples? lookbackSamples[0].length : 0);
@@ -193,12 +233,13 @@ function buildBuffer(start, end){
 			n++;
 		}
 	}
-	console.error("buffer mismatch", n, dataLength);
+	console.error("buffer mismatch", n, dataLength);	//TODO: why does this always match?
 	
 	return {
 		buffer: collectBuffer,
 		isFloat32: isFloat32
 	}
+	//TODO: we clear lookback buffer here ... so we should clear everything
 }
 
 function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
@@ -206,56 +247,31 @@ function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 		console.error("Wave Encoder Worker - encodeWAV - Missing parameters");
 		return;
 	}
-	/* alternative code:
-	var dataLength = samples.length;
-	var bitDepth = 16;
-	var bytesPerSample = bitDepth/8;
-	
-	var headerLength = 44;
-	var wav = new Uint8Array(headerLength + dataLength);
-	var view = new DataView(wav.buffer);
-
-	view.setUint32(0, 1380533830, false); 		//RIFF identifier 'RIFF'
-	view.setUint32(4, 36 + dataLength, true); 	//file length minus RIFF identifier length and file description length
-	view.setUint32(8, 1463899717, false); 		//RIFF type 'WAVE'
-	view.setUint32(12, 1718449184, false); 		//format chunk identifier 'fmt '
-	view.setUint32(16, 16, true); 				//format chunk length
-	view.setUint16(20, 1, true); 				//sample format (raw)
-	view.setUint16(22, numChannels, true); 	//channel count
-	view.setUint32(24, sampleRate, true); 	//sample rate
-	view.setUint32(28, sampleRate * bytesPerSample * numChannels, true);	//byte rate (sample rate * block align)
-	view.setUint16(32, bytesPerSample * numChannels, true); 	//block align (channel count * bytes per sample)
-	view.setUint16(34, bitDepth, true); 		//bits per sample
-	view.setUint32(36, 1684108385, false); 		//data chunk identifier 'data'
-	view.setUint32(40, dataLength, true); 		//data chunk length	- TODO: what does this do and do we need to change it?
-
-	for (let i = 0; i < dataLength; i++) {
-		wav.set(recordedBuffers[i], i * recordedBuffers[i].length + headerLength);
-	}
-	*/
+	//Format description: http://soundfile.sapp.org/doc/WaveFormat/
 	var buffer = new ArrayBuffer(44 + samples.length * 2);
 	var view = new DataView(buffer);
 	var bitDepth = 16;
 	var bytesPerSample = bitDepth/8;
+	var sampleSize = samples.length;
 	//RIFF identifier
 	wavWriteString(view, 0, 'RIFF');
-	view.setUint32(4, 36 + samples.length * 2, true);	//TODO: should be this??? samples.length
+	view.setUint32(4, 36 + (sampleSize * numChannels * bytesPerSample), true);	//TODO: was (samples.length * 2)
 	wavWriteString(view, 8, 'WAVE');
 	wavWriteString(view, 12, 'fmt ');
-	view.setUint32(16, 16, true);
-	view.setUint16(20, 1, true);
+	view.setUint32(16, 16, true);	//16 for PCM
+	view.setUint16(20, 1, true);	//1 for PCM
 	view.setUint16(22, numChannels, true);
 	view.setUint32(24, sampleRate, true);
-	view.setUint32(28, sampleRate * 4, true);			//TODO: should be this??? sampleRate * bytesPerSample * numChannels
+	view.setUint32(28, sampleRate * bytesPerSample * numChannels, true);	//TODO: was (sampleRate * 4)
 	view.setUint16(32, numChannels * bytesPerSample, true);
 	view.setUint16(34, bitDepth, true);
 	wavWriteString(view, 36, 'data');
-	view.setUint32(40, samples.length * 2, true);
+	view.setUint32(40, (sampleSize * numChannels * bytesPerSample), true);
 	if (convertFromFloat32){
 		wavFloatTo16BitPCM(view, 44, samples);
 	}else{
 		let offset = 44;
-		for (let i = 0; i < samples.length; i++, offset += 2) {
+		for (let i = 0; i < sampleSize; i++, offset += 2) {
 			view.setInt16(offset, samples[i], true);
 		}
 	}
