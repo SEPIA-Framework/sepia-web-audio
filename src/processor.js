@@ -54,6 +54,7 @@ if (!(typeof SepiaFW == "object")){
 		//Internal functions
 		
 		var isInitialized = false;
+		var isInitPending = false;
 		var initTimeout = options.initializerTimeout || 3000;
 		var initTimeoutTimer;
 		var initConditions = {};
@@ -77,6 +78,7 @@ if (!(typeof SepiaFW == "object")){
 							modulesInfo: modulesInitInfo
 						});
 						isInitialized = true;
+						isInitPending = false;
 					}
 				}
 			}
@@ -84,6 +86,7 @@ if (!(typeof SepiaFW == "object")){
 		function resetInitializer(){
 			clearTimeout(initTimeoutTimer);
 			isInitialized = false;
+			isInitPending = false;
 			//Define some conditions in advance
 			initConditions = {};
 			addInitCondition("sourceSetup");
@@ -95,6 +98,7 @@ if (!(typeof SepiaFW == "object")){
 			initErrorCallback(err);
 		}
 		resetInitializer();		//make sure we start clean
+		isInitPending = true;
 		initTimeoutTimer = setTimeout(function(){
 			initializerError({message: "Initialization took too long! If you expect long running init. process use option 'initializerTimeout' (ms).", name: "ProcessorInitTimeout"});
 		}, initTimeout);
@@ -211,7 +215,7 @@ if (!(typeof SepiaFW == "object")){
 							});
 						}
 						if (moduleSetup.onmessage){
-							moduleSetup.onmessage(event.data);
+							moduleSetup.onmessage(event.data, processNodes);
 						}
 					};
 					function onError(err){
@@ -220,7 +224,7 @@ if (!(typeof SepiaFW == "object")){
 							name: "AudioWorkletProcessorException",
 							message: ("Error in module: " + err.target.moduleName + " - Check console for details.")
 						});
-						if (!isInitialized){
+						if (isInitPending && !isInitialized){
 							completeInitCondition("module-" + i);
 							initializerError({message: "Error during setup of module: " + thisProcessNode.moduleName, name: "ProcessorInitError"});
 						}
@@ -307,7 +311,7 @@ if (!(typeof SepiaFW == "object")){
 			//thisProcessor.audioContext = mainAudioContext;
 			
 			//controls
-			if (!controls) controls = {};	//e.g.: onBeforeStart, onAfterStart, onBeforeStop, onAfterRelease
+			if (!controls) controls = {};	//e.g.: onBeforeStart, onAfterStart, onBeforeStop, onAfterStop, onBeforeRelease, onAfterRelease
 			
 			//START
 			startFun = function(callback){
@@ -347,18 +351,29 @@ if (!(typeof SepiaFW == "object")){
 					});
 					return mainAudioContext.suspend();
 				})
+				.then(function(){
+					if (controls.onAfterStop){
+						return Promise.resolve(controls.onAfterStop());
+					}
+				})
 				.then(callback)
 				.catch(onProcessorError);
 			}
 			//RELEASE
 			releaseFun = function(callback){
-				//signal
-				processNodes.forEach(function(node){
-					if (node.sendToModule) node.sendToModule({ctrl: {action: "release", options: {}}});		//TODO: add options from moduleOptions?
-					//TODO: wait for result, confirm?
-				});
-				//TODO: check state before calling close?
-				mainAudioContext.close()
+				Promise.resolve((controls.onBeforeRelease || noop)())
+				.then(function(){
+					//signal
+					processNodes.forEach(function(node, i){
+						if (node.sendToModule) node.sendToModule({ctrl: {action: "release", options: {}}});		//TODO: add options from moduleOptions?
+						processNodes[i] = null;
+						//TODO: wait for result, confirm?
+					});
+					thisProcessor.processNodes = null;
+					thisProcessor.source = null;
+					//TODO: check state before calling close?
+					return mainAudioContext.close();
+				})
 				.then(function(){
 					if (controls.onAfterRelease){
 						return Promise.resolve(controls.onAfterRelease());

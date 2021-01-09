@@ -15,7 +15,7 @@
 	<script type="text/javascript" src="src/processor.js"></script>
 	
 	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
-	<script type="text/javascript" src="test-buffer.js"></script>
+	<!--<script type="text/javascript" src="test-buffer.js"></script>-->
 	
 	<style>
 	* {
@@ -43,10 +43,12 @@
 	}
 	.contorlGroup {
 		display: flex;
-		/*justify-content: center;*/
 		align-items: center;
 		align-content: center;
 		flex-wrap: wrap;
+	}
+	.contorlGroup.center {
+		justify-content: center;
 	}
 	#mainView {
 		display: inline-block;
@@ -86,8 +88,15 @@
 		overflow: auto;
 		font-size: 15px;
 	}
+	.chart {
+		margin: 30px 0;
+		height: 128px;
+		border: 1px solid #000;
+		overflow: auto;
+	}
 	#volumeMeterNodeOutput {
 		flex: 1 1 auto;
+		min-width: 128px;
 		border: 1px solid currentColor;
 		margin: 8px;
 	}
@@ -98,11 +107,18 @@
 		width: 0%;
 		background: #ff3355;
 	}
-	.chart {
-		margin: 30px 0;
-		height: 128px;
-		border: 1px solid #000;
-		overflow: auto;
+	#waveEncoderGateState {
+		width: 18px;
+		height: 18px;
+		background: #eee;
+		border-radius: 9px;
+	}
+	#waveEncoderGateState.open {
+		background: #0f5;
+	}
+	#waveEncoderGateState.close {
+		background: #000;
+		border-radius: 0;
 	}
 	</style>
 </head>
@@ -117,7 +133,7 @@
 		<button onclick="stopRecording(this);">Stop</button>
 		<button onclick="releaseRecorder(this);">Release</button>
 	</div>
-	<div>
+	<div class="contorlGroup center">
 		<label>Target Sample-Rate:</label><select id="sampleRateSelector">
 			<option value="">Auto</option>
 			<option value="16000" selected>16000</option>
@@ -139,18 +155,18 @@
 		<label>Meter:</label><div id="volumeMeterNodeOutput"><div></div></div>
 	</div>
 	<div class="contorlGroup">
-		<label><b>Resampler</b></label>
-		<label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);">
-		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);">
-		<label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);">
+		<label><b>Resampler (Speex WASM)</b></label>
+		<label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000">
+		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512">
+		<label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)">
 	</div>
 	<div class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
 		<label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="0" onchange="setWaveEncoderLookback(this);">
-		<label>Gate:</label><div id="waveEncoderGateState">close</div><label>-</label>
-		<label>Controls:</label><button onclick="waveEncoderSetGate('open');">Open</button>
-		<button onclick="waveEncoderSetGate('close');">Close</button>
-		<button onclick="waveEncoderGetWave();">Get Wave-File</button>
+		<label>Record Max. (ms):</label><input id="waveEncoderRecordMax" class="small" value="6000" onchange="setWaveEncoderRecordMax(this);"><div style="flex: 1 0 100%;"></div>
+		<label>Gate:</label><div id="waveEncoderGateState"></div><label></label>
+		<label>Control:</label><button onclick="waveEncoderSetGate('open');">Capture</button><button onclick="waveEncoderSetGate('close');">Stop</button><label></label>
+		<label>Export:</label><button onclick="waveEncoderGetWave();">Get Wave-File</button>
 		<button onclick="waveEncoderGetBuffer();">Show Buffer</button>
 	</div>
 	<div id="chart1" class="chart"></div>
@@ -178,7 +194,7 @@
 	function onRecorderReady(info){
 		statusElement.className = "ready";
 		showLogMessage("onReady", info);
-		infoElement.textContent = "Info: BufferSize=" + info.bufferSize + ", Samplerate=" + info.inputSampleRate;
+		infoElement.textContent = "Info: Input Sample-Rate=" + info.inputSampleRate;
 		console.log("onReady", info);
 	}
 	
@@ -248,7 +264,7 @@
 		var volumeMeter = {
 			name: 'volume-meter',
 			setup: {
-				onmessage: setVolume1,
+				onmessage: setVolume1,		//info: 'onmessage' has the parameters: 'data' and 'processNodes'
 				options: {
 					//use AudioWorklet options directly or common "setup" field for worklet and workers:
 					processorOptions: {
@@ -283,7 +299,9 @@
 					setup: {
 						inputSampleRate: resamplerSampleRate,	//output sampleRate of previous module, if undefined take targetSampleRate
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
-						lookbackBufferMs: waveEncoderLookback
+						lookbackBufferMs: waveEncoderLookback,
+						//recordBufferLimitKb: 600,
+						recordBufferLimitMs: waveEncoderRecordMax
 					}
 				}
 			}
@@ -379,9 +397,12 @@
 	}
 	
 	var waveEncoderLookback = 0;
+	var waveEncoderRecordMax = 6000;
+	var waveEncoderGate = document.getElementById('waveEncoderGateState');
 	function waveEncoderSetGate(state){
 		window.waveEncoder.handle.sendToModule({gate: state});
-		document.getElementById('waveEncoderGateState').textContent = state;
+		//waveEncoderGate.textContent = state;
+		waveEncoderGate.className = state;
 	}
 	function waveEncoderGetWave(){
 		window.waveEncoder.handle.sendToModule({request: {get: "wave"}});
@@ -392,6 +413,9 @@
 	function setWaveEncoderLookback(ele){
 		waveEncoderLookback = +ele.value;
 	}
+	function setWaveEncoderRecordMax(ele){
+		waveEncoderRecordMax = +ele.value;
+	}
 	function waveEncoderMessage(data){
 		console.error("wave-encoder", data);
 		if (data.output && data.output.wav){
@@ -399,6 +423,13 @@
 			
 		}else if (data.output && data.output.buffer){
 			plotBufferToPage(data.output.buffer);
+		}
+		if (data.gate){
+			waveEncoderGate.className = data.gate.isOpen? "open" : "close";
+			if (data.gate.isOpen === false){
+				//waveEncoderGetBuffer();		//TODO: this destroys the lookback buffer
+				waveEncoderGetWave();
+			}
 		}
 	}
 	function addWaveToPage(wavAudio, targetEle){
@@ -468,6 +499,7 @@
 		rememberMax: true
 	});
 	*/
+	uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
 		
 	function debugInfo(source, data){
 		console.log(source, data);
@@ -493,7 +525,9 @@
 		if (!quality) quality = 0;
 		var smallBuff;
 		var smallBuffRes;
-		SepiaFW.webAudio.readFileAsBuffer("test-sounds/chatter_counting.wav", function(arrayBuffer){
+		var testFile = "test-sounds/chatter_counting.wav";
+		var testFileSampleRate = 24000;
+		SepiaFW.webAudio.readFileAsBuffer(testFile, function(arrayBuffer){
 			var buff = new Int16Array(arrayBuffer); //new Uint8Array(arrayBuffer);
 			//var buff = new Int16Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
 			//buff = buff.map(function(num){ return (num / 17) * 32767; });
@@ -509,7 +543,7 @@
 				dtype: 'int8'
 			});*/
 			plotBufferToPage(smallBuff);
-			SepiaFW.webAudio.resampleBufferWasm(smallBuff, 24000, 16000, 1, quality, function(r){
+			SepiaFW.webAudio.resampleBufferWasm(smallBuff, testFileSampleRate, 16000, 1, quality, function(r){
 				smallBuffRes = r.samples[0];
 				/*smallBuffRes = pcmConvert(r.samples[0], {
 					channels: 1,
