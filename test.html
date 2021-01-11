@@ -39,7 +39,11 @@
 		width: 72px;
 	}
 	select {
-		height: 21px;
+		min-height: 21px;
+	}
+	label + select,
+	label + input {
+		margin-left: 0;
 	}
 	.contorlGroup {
 		display: flex;
@@ -133,34 +137,42 @@
 		<button onclick="stopRecording(this);">Stop</button>
 		<button onclick="releaseRecorder(this);">Release</button>
 	</div>
-	<div class="contorlGroup center">
+	<div id="inputSourceOptions" class="contorlGroup center">
 		<label>Target Sample-Rate:</label><select id="sampleRateSelector">
-			<option value="">Auto</option>
-			<option value="16000" selected>16000</option>
+			<option value="" selected>Auto</option>
 			<option value="8000">8000</option>
+			<option value="16000">16000</option>
 			<option value="96000">96000</option>
 		</select>
-		<label>Audio Source:</label><select id="sourceTypeSelector">
+		<label>Audio Source:</label><select id="sourceTypeSelector" onchange="inputSourceChanged(this);">
 			<option value="mic" selected>Microphone</option>
 			<option value="whiteNoise">White-Noise Generator</option>
 			<option value="file1">File Stream 1</option>
 			<option value="file2">File Stream 2</option>
 		</select>
-		<!--<label>White-Noise Test:</label><input id="useWhiteNoiseRecorder" type="checkbox">-->
+		<div id="micOptions" class="contorlGroup">
+			<label><b>Mic Options</b></label>
+			<label>sampleRate:</label><input id="micSampleRate" style="width: 54px;" value="48000" onchange="setMicOption('sampleRate', +this.value);">
+			<label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption('channelCount', +this.value);">
+			<label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption('noiseSuppression', this.checked);">
+			<label>autoGainControl:</label><input id="micAutoGainControl" type="checkbox" checked onchange="setMicOption('autoGainControl', this.checked);">
+			<label>echoCancellation:</label><input id="micEchoCancellation" type="checkbox" checked onchange="setMicOption('echoCancellation', this.checked);">
+		</div>
 	</div>
 	<div id="logMessages">- Log -</div>
-	<div class="contorlGroup">
-		<label><b>Volume-Meter</b></label>
-		<label>Gain:</label><input id="volumeMeterGain" class="small" value="5.0" onchange="setVolumeGain();">
+	<div id="volumeMeterControls" class="contorlGroup">
+		<label><b>Volume-Processor</b></label>
+		<label>Gain:</label><input id="volumeMeterGain" class="small" value="5.0" onchange="setVolumeGain(+this.value);">
+		<label>FPS:</label><input id="volumeMeterFps" class="small" value="25" onchange="setVolumeProcFps(+this.value);">
 		<label>Meter:</label><div id="volumeMeterNodeOutput"><div></div></div>
 	</div>
-	<div class="contorlGroup">
+	<div id="resamplerControls" class="contorlGroup">
 		<label><b>Resampler (Speex WASM)</b></label>
 		<label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000">
 		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512">
 		<label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)">
 	</div>
-	<div class="contorlGroup">
+	<div id="waveEncoderControls" class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
 		<label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="0" onchange="setWaveEncoderLookback(this);">
 		<label>Record Max. (ms):</label><input id="waveEncoderRecordMax" class="small" value="6000" onchange="setWaveEncoderRecordMax(this);"><div style="flex: 1 0 100%;"></div>
@@ -168,6 +180,18 @@
 		<label>Control:</label><button onclick="waveEncoderSetGate('open');">Capture</button><button onclick="waveEncoderSetGate('close');">Stop</button><label></label>
 		<label>Export:</label><button onclick="waveEncoderGetWave();">Get Wave-File</button>
 		<button onclick="waveEncoderGetBuffer();">Show Buffer</button>
+	</div>
+	<div id="mediaRecorderControls" class="contorlGroup" style="display:none;">
+		<label><b>Media Recorder</b></label>
+		<button onclick="mediaRecorder.start();">Capture</button>
+		<button onclick="mediaRecorder.stop();">Stop</button>
+	</div>
+	<div class="contorlGroup">
+		<label><b>Switches:</b></label>
+		<label>Use resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);">
+		<label>Use wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);">
+		<label>Plot 1:</label><input type="checkbox" id="usePlot1" checked onchange="usePlot(1, this);">
+		<label>Plot 2:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);">
 	</div>
 	<div id="chart1" class="chart"></div>
 	<div id="chart2" class="chart"></div>
@@ -191,14 +215,22 @@
 	
 	//callbacks:
 	
-	function onRecorderReady(info){
+	function onProcessorReady(info){
 		statusElement.className = "ready";
 		showLogMessage("onReady", info);
-		infoElement.textContent = "Info: Input Sample-Rate=" + info.inputSampleRate;
+		if (info.sourceInfo.label) showLogMessage("onReady details: sourceInfo.label", info.sourceInfo.label);
+		if (info.sourceInfo.settings) showLogMessage("onReady details: sourceInfo.settings", info.sourceInfo.settings);
+		infoElement.textContent = "Info: " 
+			+ "Input Sample-Rate=" + info.inputSampleRate
+			+ " - Source-Type=" + info.sourceInfo.type;
 		console.log("onReady", info);
+		
+		//for testing:
+		if (!doUseWaveEncoder && rec.source.mediaStream) createMediaRecorder(rec.source.mediaStream);
+		else document.getElementById("mediaRecorderControls").style.display = "none";
 	}
 	
-	function onRecorderInitError(err){
+	function onProcessorInitError(err){
 		statusElement.className = "";
 		showLogMessage("ERROR - onInitError", err);
 		console.error("onInitError", err);
@@ -216,7 +248,7 @@
 		console.log("onaudioend", info);
 	}
 	
-	function onRecorderRelease(info){
+	function onProcessorRelease(info){
 		statusElement.className = "";
 		showLogMessage("onrelease", info);
 		console.log("onrelease", info);
@@ -235,7 +267,7 @@
 	//main:
 
 	var rec;
-	var targetSampleRate = 16000;
+	var targetSampleRate = +targetSampleRateSelector.value;		//e.g. 16000
 	
 	//set correct modules folder
 	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
@@ -253,7 +285,7 @@
 			try {
 				customSource = await createFileSource(audioSource);
 			}catch (err){
-				onRecorderInitError(err);
+				onProcessorInitError(err);
 				return;
 			}
 		}else{
@@ -261,23 +293,26 @@
 		}
 		
 		//create processor modules
-		var volumeMeter = {
-			name: 'volume-meter',
-			setup: {
+		var volumeProcessor = {
+			name: 'volume-processor',
+			settings: {
 				onmessage: setVolume1,		//info: 'onmessage' has the parameters: 'data' and 'processNodes'
 				options: {
 					//use AudioWorklet options directly or common "setup" field for worklet and workers:
 					processorOptions: {
-						smoothingFactor: volSmooth
+						gain: volGain,		//e.g 2.0
+						fps: volProcFps		//e.g 25
 					}
 				}
 			}
 		};
+		window.volumeProcessor = volumeProcessor;
+		
 		var resampler = {
 			name: 'resample-switch', //'buffer-switch',
-			setup: {
+			settings: {
 				onmessage: testBuffer,
-				sendToModules: [3],		//index as given to processor - 0: source, 1: volume-meter, 2: resample-switch, 3: wave-encoder
+				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: resample-switch, 3: wave-encoder
 				options: {
 					processorOptions: {
 						targetSampleRate: resamplerSampleRate, 	//16000,
@@ -289,15 +324,29 @@
 				}
 			}
 		};
+		var bufferSwitch = {
+			name: 'buffer-switch',
+			settings: {
+				onmessage: testBuffer,
+				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: resample-switch, 3: wave-encoder
+				options: {
+					processorOptions: {
+						bufferSize: resamplerBufferSize, 		//512,
+						passThroughMode: 1,		//0: none, 1: original (float32)
+					}
+				}
+			}
+		};
+		
 		var waveEncoder = {
 			name: 'wave-encoder',
 			type: 'worker',
 			handle: {},		//will be updated on init. with ref. to node.
-			setup: {
+			settings: {
 				onmessage: waveEncoderMessage,
 				options: {
 					setup: {
-						inputSampleRate: resamplerSampleRate,	//output sampleRate of previous module, if undefined take targetSampleRate
+						inputSampleRate: (doUseResampler? resamplerSampleRate : 0),	//output sampleRate of previous module, if undefined take targetSampleRate
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
 						lookbackBufferMs: waveEncoderLookback,
 						//recordBufferLimitKb: 600,
@@ -307,16 +356,27 @@
 			}
 		};
 		window.waveEncoder = waveEncoder;
+		
+		//put together modules
+		var activeModules = [volumeProcessor];		//[volumeMeter, resampler, waveEncoder]
+		if (doUseResampler){
+			activeModules.push(resampler);
+		}else{
+			activeModules.push(bufferSwitch);
+		}
+		if (doUseWaveEncoder){
+			activeModules.push(waveEncoder);
+		}
 				
 		//create processor
 		rec = new SepiaFW.webAudio.Processor({
 			onaudiostart: onAudioStart,
 			onaudioend: onAudioEnd,
-			onrelease: onRecorderRelease,
+			onrelease: onProcessorRelease,
 			onerror: onProcessorError,
 			targetSampleRate: targetSampleRate,
 			//targetBufferSize: 512,
-			modules: [volumeMeter, resampler, waveEncoder],
+			modules: activeModules,
 			destinationNode: undefined,		//defaults to: audioContext.destination
 			startSuspended: true,
 			debugLog: onDebugLog,
@@ -325,11 +385,11 @@
 			
 		}, function(msg){
 			//Init. ready
-			onRecorderReady(msg);
+			onProcessorReady(msg);
 			
 		}, function(err){
 			//Init. error
-			onRecorderInitError(err);
+			onProcessorInitError(err);
 		});
 	}
 	
@@ -353,6 +413,43 @@
 		}
 	}
 	
+	//Input source options
+	
+	var micAudioConstraintOptionElements = {
+		//sampleRate: '<label>sampleRate:</label><input id="micSampleRate" style="width: 54px;" value="48000" onchange="setMicOption(\'sampleRate\', +this.value);">',
+		channelCount: '<label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption(\'channelCount\', +this.value);">',
+		noiseSuppression: '<label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption(\'noiseSuppression\', this.checked);">',
+		autoGainControl: '<label>autoGainControl:</label><input id="micAutoGainControl" type="checkbox" onchange="setMicOption(\'autoGainControl\', this.checked);">',
+		echoCancellation: '<label>echoCancellation:</label><input id="micEchoCancellation" type="checkbox" onchange="setMicOption(\'echoCancellation\', this.checked);">'
+	};
+	(function(){
+		var micO = document.getElementById("micOptions");
+		micO.innerHTML = "";
+		var sac = SepiaFW.webAudio.getSupportedAudioConstraints();
+		Object.keys(sac).forEach(function(aco, i){
+			var oEle = micAudioConstraintOptionElements[aco];
+			if (oEle){
+				micO.innerHTML += oEle;
+			}else{
+				console.log("Skipped mic contraint option: " + aco);
+			}
+		});
+	})();
+	
+	function inputSourceChanged(ele){
+		if (!ele) ele = sourceSelector;
+		if (ele.value == "mic"){
+			document.getElementById("micOptions").style.display = "";
+		}else{
+			document.getElementById("micOptions").style.display = "none";
+		}
+	}
+	inputSourceChanged();
+	function setMicOption(optionName, value){
+		console.log("Set mic constraint option", optionName, value);
+		SepiaFW.webAudio.overwriteSupportedAudioConstraints[optionName] = value;
+	}
+	
 	//Custom audio nodes
 	
 	async function createFileSource(fileId){
@@ -372,20 +469,30 @@
 	
 	var volMeterOutBar = document.getElementById('volumeMeterNodeOutput').firstChild;
 	var volGain = +document.getElementById('volumeMeterGain').value;
-	var volSmooth = 0.8;	//0=none, 1=max
-	function setVolumeGain(input){
-		volGain = input || +document.getElementById('volumeMeterGain').value;
+	var volProcFps = +document.getElementById('volumeMeterFps').value;
+	//var volSmooth = 0.8;	//0=none, 1=max
+	function setVolumeGain(val){
+		volGain = val;
+		if (volumeProcessor.handle){
+			volumeProcessor.handle.sendToModule({gain: {set: val}});
+		}
 	}
-	setVolumeGain();
-	function setVolumeBar(data){
+	function setVolumeProcFps(val){
+		volProcFps = val;
+		if (volumeProcessor.handle){
+			volumeProcessor.handle.sendToModule({fps: {set: val}});
+		}
+	}
+	function setVolumeBar(vol){
 		//console.log("volume-bar data", data);
-		var volPercent = Math.min(100, Math.round(volGain * data.volume * 100));
+		var volPercent = Math.min(100, Math.round(vol * 100));
 		volMeterOutBar.style.width = (volPercent + "%");
 	}
 	
-	var resamplerSampleRate = 16000;
-	var resamplerBufferSize = 512;
-	var resamplerQuality = 7;
+	var doUseResampler = document.getElementById("useResampler").checked;
+	var resamplerSampleRate = +document.getElementById("resamplerSampleRate").value; 	//e.g. 16000;
+	var resamplerBufferSize = +document.getElementById("resamplerBufferSize").value; 	//e.g. 512;
+	var resamplerQuality = +document.getElementById("resampleQuality").value; 			//e.g. 7;
 	function setResamplerSampleRate(inputEle){
 		resamplerSampleRate = +inputEle.value;
 	}
@@ -395,9 +502,14 @@
 	function setResampleQuality(inputEle){
 		resamplerQuality = +inputEle.value;
 	}
+	function useResampler(useIt){
+		doUseResampler = useIt;
+		document.getElementById("resamplerControls").style.display = useIt? "" : "none";
+	}
 	
-	var waveEncoderLookback = 0;
-	var waveEncoderRecordMax = 6000;
+	var doUseWaveEncoder = document.getElementById("useWaveEncoder").checked;
+	var waveEncoderLookback = +document.getElementById("waveEncoderLookback").value; 	//e.g. 0;
+	var waveEncoderRecordMax = +document.getElementById("waveEncoderRecordMax").value; 	//e.g. 6000;
 	var waveEncoderGate = document.getElementById('waveEncoderGateState');
 	function waveEncoderSetGate(state){
 		window.waveEncoder.handle.sendToModule({gate: state});
@@ -422,7 +534,7 @@
 			addWaveToPage(data.output.wav);
 			
 		}else if (data.output && data.output.buffer){
-			plotBufferToPage(data.output.buffer);
+			plotData(data.output.buffer);
 		}
 		if (data.gate){
 			waveEncoderGate.className = data.gate.isOpen? "open" : "close";
@@ -434,29 +546,73 @@
 	}
 	function addWaveToPage(wavAudio, targetEle){
 		var audioEle = document.createElement("audio");
-		audioEle.src = window.URL.createObjectURL(new Blob([wavAudio], { type: "audio/wav" }));
+		audioEle.src = window.URL.createObjectURL((wavAudio.constructor.name == "Blob")? wavAudio : (new Blob([wavAudio], { type: "audio/wav" })));
 		audioEle.setAttribute("controls", "controls");
 		var audioBox = document.createElement("div");
 		audioBox.appendChild(audioEle);
 		if (!targetEle) targetEle = document.getElementById("mainView") || document.body;
 		targetEle.appendChild(audioBox);
 	}
-	function plotBufferToPage(buffer){
-		var ele = addChartContainerToPage();
-		var x = uPlot.lazy.createSequence(0, buffer.length);
-		uPlot.lazy.plot({
-			targetElement: ele,
-			showPoints: false,
-			strokeWidth: 1,
-			data: [x, buffer]
-		});
+	function useWaveEncoder(useIt){
+		doUseWaveEncoder = useIt;
+		document.getElementById("waveEncoderControls").style.display = useIt? "" : "none";
 	}
 	
+	var fixedPlots = {
+		1: {
+			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
+				rememberMax: true
+			})), 
+			use: document.getElementById("usePlot1").checked
+		},
+		2: {
+			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart2'), 150, {
+				rememberMax: true
+			}, {
+				showAxisX: false
+			})),
+			use: document.getElementById("usePlot2").checked
+		}
+	}
+	function addChartContainerToPage(){
+		var ele = document.createElement("div");
+		ele.className = "chart";
+		document.getElementById("mainView").appendChild(ele);
+		return ele;
+	}
+	function plotData(data, plotIndex){
+		var p = fixedPlots[plotIndex];
+		if (p){
+			if (p.use){
+				p.graph.addValues(data);
+				p.graph.draw();
+			}
+		}else{
+			var ele = addChartContainerToPage();
+			var x = uPlot.lazy.createSequence(0, data.length);
+			uPlot.lazy.plot({
+				targetElement: ele,
+				showPoints: false,
+				strokeWidth: 1,
+				data: [x, data]
+			});
+		}
+	}
+	function usePlot(index, ele){
+		var p = fixedPlots[index];
+		if (p){
+			p.use = ele.checked;
+			var container = document.getElementById("chart" + index);
+			if (container) container.style.display = p.use? "" : "none";
+		}
+	}
+	uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
+		
 	function setVolume1(data){
 		//console.log(data);
-		if (data.volume != undefined){
-			plot1.addValues(data.volume);
-			plot1.draw();
+		if (data.rms != undefined){
+			plotData(data.rms, 1);
+			if (data.avg) setVolumeBar(data.avg);
 		}else{
 			console.log(data);
 		}
@@ -464,43 +620,11 @@
 	function setVolume2(data){
 		//console.log(data.samples);
 		if (data.rms != undefined){
-			plot2.addValues(data.rms);
-			plot2.draw();
+			plotData(data.rms, 2);
 		}else{
 			console.log(data);
 		}
 	}
-	function setVolume3(data){
-		//console.log(data);
-		if (data.volume != undefined){
-			plot3.addValues(data.volume);
-			plot3.draw();
-		}else{
-			console.log(data);
-		}
-	}
-	
-	function addChartContainerToPage(){
-		var ele = document.createElement("div");
-		ele.className = "chart";
-		document.getElementById("mainView").appendChild(ele);
-		return ele;
-	}
-	var plot1 = new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
-		rememberMax: true
-	});
-	var plot2 = new uPlot.lazy.AutoSeries(document.getElementById('chart2'), 150, {
-		rememberMax: true
-	}, {
-		showAxisX: false
-	});
-	/*
-	var plot3 = new uPlot.lazy.AutoSeries(document.getElementById('chart3'), 150, {
-		rememberMax: true
-	});
-	*/
-	uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
-		
 	function debugInfo(source, data){
 		console.log(source, data);
 	}
@@ -515,7 +639,7 @@
 			if (data.sampleRate){
 				SepiaFW.webAudio.encodeWaveBuffer(window.newBuff, data.sampleRate, data.channels || 1, true, function(r){
 					addWaveToPage(r.wav);
-					plotBufferToPage(data.test);
+					plotData(data.test);
 				});
 			}
 		}
@@ -542,7 +666,7 @@
 			}, {
 				dtype: 'int8'
 			});*/
-			plotBufferToPage(smallBuff);
+			plotData(smallBuff);
 			SepiaFW.webAudio.resampleBufferWasm(smallBuff, testFileSampleRate, 16000, 1, quality, function(r){
 				smallBuffRes = r.samples[0];
 				/*smallBuffRes = pcmConvert(r.samples[0], {
@@ -556,12 +680,40 @@
 					dtype: 'float32',
 					endianness: 'le'
 				});*/
-				plotBufferToPage(smallBuffRes);
+				plotData(smallBuffRes);
 				obj.a = smallBuff;
 				obj.b = smallBuffRes;
 			});
 		}, console.error);
 		return obj;
+	}
+	
+	function createMediaRecorder(stream){
+		var chunks = [];
+		if ("MediaRecorder" in window){
+			window.mediaRecorder = new MediaRecorder(stream);
+			mediaRecorder.onerror = function(err){ showLogMessage("mediaRecorderError", err); };
+			mediaRecorder.onstart = function(e){ showLogMessage("mediaRecorderStart", {}); };
+			mediaRecorder.onpause = function(e){ showLogMessage("mediaRecorderPause", {}); };
+			mediaRecorder.onresume = function(e){ showLogMessage("mediaRecorderResume", {}); };
+			mediaRecorder.onstop = function(e) {
+				showLogMessage("mediaRecorderStop", {message: "Processing chunks", chunkSize: chunks.length});
+				var blob = new Blob(chunks, { 'type' : 'audio/ogg; codecs=opus' });
+				chunks = [];
+				addWaveToPage(blob);
+			}
+			mediaRecorder.ondataavailable = function(e){
+				if (e && e.data){
+					chunks.push(e.data);
+				}
+			}
+			showLogMessage("mediaRecorderCreated", {});
+			document.getElementById("mediaRecorderControls").style.display = "";
+		}else{
+			showLogMessage("mediaRecorderNotSupported", {});
+			document.getElementById("mediaRecorderControls").style.display = "none";
+		}
+		return window.mediaRecorder;
 	}
 </script>
 </body>
