@@ -107,6 +107,12 @@ function getWave(start, end){
 }
 
 function gateControl(open){
+	if (open){
+		//TODO: we should reset some stuff here, for now:
+		if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
+			recordedBuffers = [];		//TODO: should this happen always? only when full? never? leave to getBuffer?
+		}
+	}
 	gateIsOpen = open;
 	postMessage({
 		gate: {
@@ -131,8 +137,10 @@ function constructWorker(options){
 		recordBufferMaxN = 5242880 / (2 * inputSampleSize);	//max 5MB = (5242880[bytes]/(bytesPerSample * sampleSize))
 	}
 	recordBufferMaxN = Math.ceil(recordBufferMaxN);
+	if (recordBufferMaxN < 0) recordBufferMaxN = 0;
 	
 	//TODO: add stream output option
+	//TODO: lookback audio gets mixed with record sometimes O_o
 	
 	init();
     	
@@ -170,6 +178,7 @@ function process(data){
 			//max length
 			if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
 				gateControl(false);
+				//TODO: after this has triggered the nex record sounds distorted???
 			}
 			if (!lookbackBufferNeedsReset) lookbackBufferNeedsReset = true;
 			
