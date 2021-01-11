@@ -30,6 +30,20 @@ if (!(typeof SepiaFW == "object")){
 		//debugLog: console.log
 	}
 
+	//Media constraints
+	WebAudio.getSupportedAudioConstraints = function(){
+		var sc = navigator.mediaDevices.getSupportedConstraints();
+		var c = {}, owc = WebAudio.overwriteSupportedAudioConstraints;
+		if (sc.channelCount) c.channelCount = (owc.channelCount != undefined)? owc.channelCount : 1;
+		if (sc.noiseSuppression) c.noiseSuppression = (owc.noiseSuppression != undefined)? owc.noiseSuppression : true;
+		if (sc.autoGainControl) c.autoGainControl = (owc.autoGainControl != undefined)? owc.autoGainControl : false;
+		if (sc.echoCancellation) c.echoCancellation = (owc.echoCancellation != undefined)? owc.echoCancellation : false;
+		if (sc.sampleRate) c.sampleRate = (owc.sampleRate != undefined)? owc.sampleRate : 48000;
+		//other options: latency: double, sampleSize: 16
+		return c;
+	};
+	WebAudio.overwriteSupportedAudioConstraints = {};
+	
 	//Processor class
 	
 	WebAudio.Processor = function(options, initSuccessCallback, initErrorCallback){
@@ -58,6 +72,7 @@ if (!(typeof SepiaFW == "object")){
 		var initTimeout = options.initializerTimeout || 3000;
 		var initTimeoutTimer;
 		var initConditions = {};
+		var sourceInitInfo = {};
 		var modulesInitInfo = [];
 		function addInitCondition(tag){
 			if (options.debugLog) options.debugLog("Started init. condition: " + tag);
@@ -75,6 +90,7 @@ if (!(typeof SepiaFW == "object")){
 							message: "Processor is ready for action",
 							inputSampleRate: inputSampleRate, 
 							targetSampleRate: (options.targetSampleRate || inputSampleRate),
+							sourceInfo: sourceInitInfo,
 							modulesInfo: modulesInitInfo
 						});
 						isInitialized = true;
@@ -221,7 +237,7 @@ if (!(typeof SepiaFW == "object")){
 					function onError(err){
 						//TODO: do something with 'completeInitCondition("module-" + i)' or abort whole processor?
 						onProcessorError({
-							name: "AudioWorkletProcessorException",
+							name: "AudioModuleProcessorException",
 							message: ("Error in module: " + err.target.moduleName + " - Check console for details.")
 						});
 						if (isInitPending && !isInitialized){
@@ -273,8 +289,9 @@ if (!(typeof SepiaFW == "object")){
 
 		//AUDIO SOURCE HANDLER
 		
-		function sourceHandler(source, controls){
+		function sourceHandler(source, controls, metaInfo){
 			inputSampleRate = mainAudioContext.sampleRate;
+			if (!metaInfo) metaInfo = {};
 			if (options.targetSampleRate && options.targetSampleRate != inputSampleRate){
 				WebAudio.isNativeStreamResamplingSupported = false;
 				sampleRateMismatch = inputSampleRate - options.targetSampleRate;
@@ -307,8 +324,11 @@ if (!(typeof SepiaFW == "object")){
 			//Destination node?
 			var destinationNode = options.destinationNode || mainAudioContext.destination;
 			
-			thisProcessor.source = source;		//TODO: keep?
-			//thisProcessor.audioContext = mainAudioContext;
+			//source info
+			thisProcessor.mainAudioContext = mainAudioContext;
+			thisProcessor.source = source;
+			thisProcessor.sourceInfo = metaInfo;
+			sourceInitInfo = metaInfo;
 			
 			//controls
 			if (!controls) controls = {};	//e.g.: onBeforeStart, onAfterStart, onBeforeStop, onAfterStop, onBeforeRelease, onAfterRelease
@@ -338,7 +358,7 @@ if (!(typeof SepiaFW == "object")){
 					}
 				})
 				.then(callback)
-				.catch(onProcessorError);
+				.catch(function(err){onProcessorError({name: "ProcessorStartError", message: (err.name + " - Message: " + (err.message || err))});});
 			}
 			//STOP
 			stopFun = function(callback){
@@ -357,7 +377,7 @@ if (!(typeof SepiaFW == "object")){
 					}
 				})
 				.then(callback)
-				.catch(onProcessorError);
+				.catch(function(err){onProcessorError({name: "ProcessorStopError", message: (err.name + " - Message: " + (err.message || err))});});
 			}
 			//RELEASE
 			releaseFun = function(callback){
@@ -383,7 +403,7 @@ if (!(typeof SepiaFW == "object")){
 					return Promise.resolve(resetInitializer());
 				})
 				.then(callback)
-				.catch(onProcessorError);
+				.catch(function(err){onProcessorError({name: "ProcessorReleaseError", message: (err.name + " - Message: " + (err.message || err))});});
 			}
 			
 			completeInitCondition("sourceSetup");
@@ -406,7 +426,9 @@ if (!(typeof SepiaFW == "object")){
 				
 			}).then(function(){
 				//continue with source handler
-				sourceHandler(thisProcessNode);
+				sourceHandler(thisProcessNode, {}, {
+					type: "whiteNoiseGenerator"		//TODO: add more?
+				});
 				
 			}).catch(function(err){
 				initializerError(err);
@@ -425,6 +447,8 @@ if (!(typeof SepiaFW == "object")){
 					onAfterStart: options.customSource.start,
 					onBeforeStop: options.customSource.stop, 
 					onAfterRelease: options.customSource.release
+				}, {
+					type: "custom"		//TODO: add more
 				});
 				
 			}).catch(function(err){
@@ -438,9 +462,18 @@ if (!(typeof SepiaFW == "object")){
 		
 		//Official MediaDevices interface using microphone
 		}else{
-			navigator.mediaDevices.getUserMedia({ 
-				video : false, audio: true 
-			}).then(async function(stream){
+			let constraints = JSON.parse(JSON.stringify(WebAudio.getSupportedAudioConstraints()));
+			if (constraints.sampleRate && options.targetSampleRate) constraints.sampleRate = options.targetSampleRate;
+			//other options: latency: double, sampleSize: 16
+			let audioVideoConstraints = { 
+				video : false, audio: (Object.keys(constraints).length? constraints : true)
+			};
+			//'getUserMedia' can be empty in unsecure context!
+			if (!navigator.mediaDevices.getUserMedia){
+				initializerError({message: "'getUserMedia' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "ProcessorInitError"});
+				return;
+			}
+			navigator.mediaDevices.getUserMedia(audioVideoConstraints).then(async function(stream){
 				//Audio context and source node
 				if (WebAudio.isNativeStreamResamplingSupported){
 					mainAudioContext = await createOrUpdateAudioContext(false, false);		//Try native resampling first
@@ -464,8 +497,16 @@ if (!(typeof SepiaFW == "object")){
 					options.destinationNode = mainAudioContext.createMediaStreamDestination();
 				}
 				
+				var metaInfo = { type: "mic" };
+				if (source.mediaStream && source.mediaStream.getAudioTracks){
+					try {
+						var track0 = source.mediaStream.getAudioTracks()[0];
+						metaInfo.label = track0.label;
+						if (track0.getSettings) metaInfo.settings = track0.getSettings();
+					} catch(e) {};
+				}
 				//continue with source handler
-				sourceHandler(source);
+				sourceHandler(source, {}, metaInfo);
 				
 			}).catch(function(err){
 				if (typeof err == "string"){
