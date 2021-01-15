@@ -34,6 +34,7 @@ if (!(typeof SepiaFW == "object")){
 	WebAudio.getSupportedAudioConstraints = function(){
 		var sc = navigator.mediaDevices.getSupportedConstraints();
 		var c = {}, owc = WebAudio.overwriteSupportedAudioConstraints;
+		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : undefined;
 		if (sc.channelCount) c.channelCount = (owc.channelCount != undefined)? owc.channelCount : 1;
 		if (sc.noiseSuppression) c.noiseSuppression = (owc.noiseSuppression != undefined)? owc.noiseSuppression : true;
 		if (sc.autoGainControl) c.autoGainControl = (owc.autoGainControl != undefined)? owc.autoGainControl : false;
@@ -43,6 +44,16 @@ if (!(typeof SepiaFW == "object")){
 		return c;
 	};
 	WebAudio.overwriteSupportedAudioConstraints = {};
+	
+	//AudioContext creator
+	WebAudio.createAudioContext = function(options, ignoreOptions){
+		var contextOptions = {};
+		if (!ignoreOptions && options.targetSampleRate){
+			//NOTE: currently (Dec 2020) only Chromium can do this:
+			contextOptions.sampleRate = options.targetSampleRate;
+		}
+		return new AudioContext(contextOptions);
+	};
 	
 	//Processor class
 	
@@ -128,12 +139,7 @@ if (!(typeof SepiaFW == "object")){
 			}
 			if (!mainAudioContext || mainAudioContext.state == "closed"){
 				//TODO: clean up old context and sources?
-				var contextOptions = {};
-				if (!ignoreOptions && options.targetSampleRate){
-					//NOTE: currently (Dec 2020) only Chromium can do this:
-					contextOptions.sampleRate = options.targetSampleRate;
-				}
-				mainAudioContext = new AudioContext(contextOptions);
+				mainAudioContext = WebAudio.createAudioContext(options, ignoreOptions);
 				if (options.startSuspended){
 					await mainAudioContext.suspend();
 				}else{
@@ -346,8 +352,8 @@ if (!(typeof SepiaFW == "object")){
 							audioWorkletNodes[i-1].connect(audioWorkletNodes[i]);
 						}
 						audioWorkletNodes[i-1].connect(destinationNode);
-					}else{
-						audioWorkletNodes[0].connect(destinationNode);
+					}else if (audioWorkletNodes.length == 1){
+						audioWorkletNodes[0].connect(destinationNode);		//TODO: what if there is no workletNode?
 					}
 					//signal
 					processNodes.forEach(function(node){
@@ -462,61 +468,18 @@ if (!(typeof SepiaFW == "object")){
 		
 		//Official MediaDevices interface using microphone
 		}else{
-			let constraints = JSON.parse(JSON.stringify(WebAudio.getSupportedAudioConstraints()));
-			if (constraints.sampleRate && options.targetSampleRate) constraints.sampleRate = options.targetSampleRate;
-			//other options: latency: double, sampleSize: 16
-			let audioVideoConstraints = { 
-				video : false, audio: (Object.keys(constraints).length? constraints : true)
-			};
-			//'getUserMedia' can be empty in unsecure context!
-			if (!navigator.mediaDevices.getUserMedia){
-				initializerError({message: "'getUserMedia' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "ProcessorInitError"});
-				return;
-			}
-			navigator.mediaDevices.getUserMedia(audioVideoConstraints).then(async function(stream){
-				//Audio context and source node
-				if (WebAudio.isNativeStreamResamplingSupported){
-					mainAudioContext = await createOrUpdateAudioContext(false, false);		//Try native resampling first
-				}else{
-					mainAudioContext = await createOrUpdateAudioContext(false, true);
-				}
-				
-				var source;
-				try {
-					source = mainAudioContext.createMediaStreamSource(stream);
-				}catch(e){
-					mainAudioContext = await createOrUpdateAudioContext(true, true);
-					source = mainAudioContext.createMediaStreamSource(stream);
-					if (e && e.name && e.name == "NotSupportedError"){
-						WebAudio.isNativeStreamResamplingSupported = false;
-						if (options.debugLog) options.debugLog("Native stream resampling has been deactivated - Info: " + e.message);
-					}
-				}
-				
-				if (!options.destinationNode){
-					options.destinationNode = mainAudioContext.createMediaStreamDestination();
-				}
-				
-				var metaInfo = { type: "mic" };
-				if (source.mediaStream && source.mediaStream.getAudioTracks){
-					try {
-						var track0 = source.mediaStream.getAudioTracks()[0];
-						metaInfo.label = track0.label;
-						if (track0.getSettings) metaInfo.settings = track0.getSettings();
-					} catch(e) {};
-				}
+			WebAudio.getMicrophone(options, createOrUpdateAudioContext).then(function(res){
 				//continue with source handler
-				sourceHandler(source, {}, metaInfo);
+				sourceHandler(res.source, {}, res.info);
 				
 			}).catch(function(err){
 				if (typeof err == "string"){
 					initializerError({message: err, name: "ProcessorInitError"});
 				}else{
-					initializerError({message: err.message, name: err.name, ref: err});	//should be err.name = "NotAllowedError", "NotFoundError"
+					initializerError({message: err.message, name: err.name, ref: err});	//should be err.name = "NotAllowedError", "NotFoundError", "TimeoutError"
 				}
 				return;
 			});
-			//NOTE: if the user does not answer the permission request at all this procedure will simply end here
 		}
 		
 		//INTERFACE
@@ -553,6 +516,122 @@ if (!(typeof SepiaFW == "object")){
 		}
 	}
 	
+	//Get audio devices (in and out)
+	WebAudio.getAudioDevices = function(timeout){
+		return new Promise(function(resolve, reject){
+			(async function(){
+				if (!navigator.mediaDevices.enumerateDevices){
+					return reject({message: "MediaDevices 'enumerateDevices' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "NotSupportedError"});
+				}
+				//List media devices - NOTE: if the user does not answer the permission request this will never resolve ... so we fake a timeout
+				var didTimeout = false;
+				var timeoutTimer = undefined;
+				navigator.mediaDevices.enumerateDevices().then(function(devices){
+					if (didTimeout)	return;	//NOT reject
+					else clearTimeout(timeoutTimer);
+					//look for audio in/out
+					var audioIn = {};
+					var audioOut = {};
+					devices.forEach(function(device){
+						//console.log(device.kind + ": " + device.label + " id = " + device.deviceId);
+						if (device.kind == "audioinput"){
+							audioIn[device.label] = device.deviceId;
+						}else if (device.kind == "audiooutput"){
+							audioOut[device.label] = device.deviceId;
+						}
+					});
+					resolve({input: audioIn, output: audioOut});
+					
+				}).catch(function(err) {
+					return reject(err);
+				});
+				timeoutTimer = setTimeout(function(){
+					didTimeout = true;
+					return reject({message: "Media device enumeration timeout. Permission might require user interaction.", name: "TimeoutError"});
+				}, timeout || 5000);
+			})();
+		});
+	};
+	
+	//Get microphone via MediaDevices interface
+	WebAudio.getMicrophone = function(options, asyncCreateOrUpdateAudioContext, timeout){
+		if (!options) options = {};		//e.g.: 'targetSampleRate'
+		if (!asyncCreateOrUpdateAudioContext){
+			asyncCreateOrUpdateAudioContext = async function(forceNew, ignoreOptions){
+				var audioContext = WebAudio.createAudioContext(options, ignoreOptions);
+				if (options.startSuspended){
+					await audioContext.suspend();
+				}else{
+					await audioContext.resume();
+				}
+				return audioContext;
+			};
+		}
+		return new Promise(function(resolve, reject){
+			(async function(){
+				var constraints = JSON.parse(JSON.stringify(WebAudio.getSupportedAudioConstraints()));
+				if (constraints.sampleRate && options.targetSampleRate) constraints.sampleRate = options.targetSampleRate;
+				//other options: latency: double, sampleSize: 16
+				var audioVideoConstraints = { 
+					video : false, audio: (Object.keys(constraints).length? constraints : true)
+				};
+				//'getUserMedia' can be empty in unsecure context!
+				if (!navigator.mediaDevices.getUserMedia){
+					return reject({message: "MediaDevices 'getUserMedia' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "NotSupportedError"});
+				}
+				//NOTE: if the user does not answer the permission request this will never resolve ... so we fake a timeout
+				var didTimeout = false;
+				var timeoutTimer = undefined;
+				navigator.mediaDevices.getUserMedia(audioVideoConstraints).then(async function(stream){
+					if (didTimeout)	return;	//NOT reject
+					else clearTimeout(timeoutTimer);
+					
+					//Audio context and source node
+					var audioContext;
+					if (WebAudio.isNativeStreamResamplingSupported){
+						audioContext = await asyncCreateOrUpdateAudioContext(false, false);		//Try native resampling first
+					}else{
+						audioContext = await asyncCreateOrUpdateAudioContext(false, true);
+					}
+					
+					var source;
+					try {
+						source = audioContext.createMediaStreamSource(stream);
+					}catch(e){
+						audioContext = await asyncCreateOrUpdateAudioContext(true, true);
+						source = audioContext.createMediaStreamSource(stream);
+						if (e && e.name && e.name == "NotSupportedError"){
+							WebAudio.isNativeStreamResamplingSupported = false;
+							if (options.debugLog) options.debugLog("Native stream resampling has been deactivated - Info: " + e.message);
+						}
+					}
+					
+					if (!options.destinationNode){
+						options.destinationNode = audioContext.createMediaStreamDestination();
+					}
+					
+					var info = { type: "mic" };
+					if (source.mediaStream && source.mediaStream.getAudioTracks){
+						try {
+							var track0 = source.mediaStream.getAudioTracks()[0];
+							info.label = track0.label;
+							if (track0.getSettings) info.settings = track0.getSettings();
+						} catch(e) {};
+					}
+					
+					return resolve({source: source, info: info});
+					
+				}).catch(function(err){
+					return reject(err);
+				});
+				timeoutTimer = setTimeout(function(){
+					didTimeout = true;
+					return reject({message: "Media 'getUserMedia' timeout. Permission might require user interaction.",	name: "TimeoutError"});
+				}, timeout || 5000);
+			})();
+		});
+	};
+	
 	//Builders
 	
 	//White-noise-generator node for testing
@@ -563,9 +642,7 @@ if (!(typeof SepiaFW == "object")){
 			(async function(){
 				try {
 					//Audio context and source node
-					var contextOptions = {};
-					if (options.targetSampleRate) contextOptions.sampleRate = options.targetSampleRate;	//NOTE: might not work on all browsers
-					var audioContext = new AudioContext(contextOptions);
+					var audioContext = WebAudio.createAudioContext(options);
 					await audioContext.resume();
 					
 					var modulePath = moduleFolder + "white-noise-generator.js";
@@ -596,10 +673,8 @@ if (!(typeof SepiaFW == "object")){
 		return new Promise(function(resolve, reject){
 			(async function(){
 				try {
-					//AudioContext and AudioBufferSourceNode
-					var contextOptions = {};
-					if (options.targetSampleRate) contextOptions.sampleRate = options.targetSampleRate;	//NOTE: might not work on all browsers
-					var audioContext = new AudioContext(contextOptions);		//NOTE: maybe useful: new OfflineAudioContext(1, 128, 16000);
+					//AudioContext and AudioBufferSourceNode - NOTE: maybe useful: new OfflineAudioContext(1, 128, 16000);
+					var audioContext = WebAudio.createAudioContext(options);
 					await audioContext.resume();
 					var audioBufferSourceNode = audioContext.createBufferSource();
 					
