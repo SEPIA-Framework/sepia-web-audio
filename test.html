@@ -144,6 +144,8 @@
 			<option value="" selected>Auto</option>
 			<option value="8000">8000</option>
 			<option value="16000">16000</option>
+			<option value="44000">44100</option>
+			<option value="48000">48000</option>
 			<option value="96000">96000</option>
 		</select>
 		<label>Audio Source:</label><select id="sourceTypeSelector" onchange="inputSourceChanged(this);">
@@ -166,7 +168,7 @@
 	<div id="volumeMeterControls" class="contorlGroup">
 		<label><b>Volume-Processor</b></label>
 		<label>Gain:</label><input id="volumeMeterGain" class="small" value="5.0" onchange="setVolumeGain(+this.value);">
-		<label>FPS:</label><input id="volumeMeterFps" class="small" value="25" onchange="setVolumeProcFps(+this.value);">
+		<label>FPS:</label><input id="volumeMeterFps" class="small" value="40" onchange="setVolumeProcFps(+this.value);">
 		<label>Meter:</label><div id="volumeMeterNodeOutput"><div></div></div>
 	</div>
 	<div id="resamplerControls" class="contorlGroup">
@@ -174,6 +176,10 @@
 		<label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000">
 		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512">
 		<label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)">
+	</div>
+	<div id="basicBufferControls" class="contorlGroup" style="display:none;">
+		<label><b>Basic Buffer</b></label>
+		<label>Buffer-Size:</label><input id="basicBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512">
 	</div>
 	<div id="waveEncoderControls" class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
@@ -186,8 +192,8 @@
 	</div>
 	<div id="mediaRecorderControls" class="contorlGroup" style="display:none;">
 		<label><b>Media Recorder</b></label>
-		<button onclick="mediaRecorder.start();">Capture</button>
-		<button onclick="mediaRecorder.stop();">Stop</button>
+		<label>Codec/format:</label><select id="mediaRecorderCodec"><option value="" selected>Default</option></select>
+		<label>Control:</label><button onclick="mediaRecorder.start();">Capture</button><button onclick="mediaRecorder.stop();">Stop</button>
 	</div>
 	<div class="contorlGroup">
 		<label><b>Switches:</b></label>
@@ -312,10 +318,10 @@
 		window.volumeProcessor = volumeProcessor;
 		
 		var resampler = {
-			name: 'resample-switch', //'buffer-switch',
+			name: 'speex-resample-switch', //'buffer-switch',
 			settings: {
 				onmessage: testBuffer,
-				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: resample-switch, 3: wave-encoder
+				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: speex-resample-switch, 3: wave-encoder
 				options: {
 					processorOptions: {
 						targetSampleRate: resamplerSampleRate, 	//16000,
@@ -331,7 +337,7 @@
 			name: 'buffer-switch',
 			settings: {
 				onmessage: testBuffer,
-				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: resample-switch, 3: wave-encoder
+				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: speex-resample-switch, 3: wave-encoder
 				options: {
 					processorOptions: {
 						bufferSize: resamplerBufferSize, 		//512,
@@ -439,6 +445,7 @@
 			}
 		});
 		var devSel = document.getElementById("micDeviceId");
+		devSel.innerHTML = '<option value="" selected>Default</option>';
 		SepiaFW.webAudio.getAudioDevices().then(function(devices){
 			window.audioInputDevicesFound = devices.input;
 			Object.keys(devices.input).forEach(function(label, i){
@@ -517,15 +524,27 @@
 	function setResamplerSampleRate(inputEle){
 		resamplerSampleRate = +inputEle.value;
 	}
-	function setResampleBufferSize(inputEle){
+	function setResamplerBufferSize(inputEle){
 		resamplerBufferSize = +inputEle.value;
+		//kind of clumsy way to use this variable and function for both settings
+		if (doUseResampler){
+			document.getElementById("basicBufferSize").value = resamplerBufferSize;
+		}else{
+			document.getElementById("resamplerBufferSize").value = resamplerBufferSize;
+		}
 	}
 	function setResampleQuality(inputEle){
 		resamplerQuality = +inputEle.value;
 	}
 	function useResampler(useIt){
 		doUseResampler = useIt;
-		document.getElementById("resamplerControls").style.display = useIt? "" : "none";
+		if (useIt){
+			document.getElementById("resamplerControls").style.display = "";
+			document.getElementById("basicBufferControls").style.display = "none";
+		}else{
+			document.getElementById("resamplerControls").style.display = "none";
+			document.getElementById("basicBufferControls").style.display = "";
+		}
 	}
 	
 	var doUseWaveEncoder = document.getElementById("useWaveEncoder").checked;
@@ -555,7 +574,7 @@
 			addWaveToPage(data.output.wav);
 			if (data.output.wav.byteLength){
 				var byteLen = data.output.wav.byteLength;
-				var samplesLen = (data.output.wav.byteLength - 44)/2;	//16bit
+				var samplesLen = data.output.totalSamples;
 				var time = Math.round(samplesLen/data.output.sampleRate*1000);
 				showLogMessage("waveEncoder", "created wave file - byteLength: " + byteLen + ", samples: " + samplesLen + ", time calc.: " + time);
 			}else{
@@ -590,7 +609,14 @@
 	}
 	function useWaveEncoder(useIt){
 		doUseWaveEncoder = useIt;
-		document.getElementById("waveEncoderControls").style.display = useIt? "" : "none";
+		if (useIt){
+			document.getElementById("waveEncoderControls").style.display = "";
+			document.getElementById("mediaRecorderControls").style.display = "none";
+		}else{
+			document.getElementById("waveEncoderControls").style.display = "none";
+			document.getElementById("mediaRecorderControls").style.display = "";
+			showMediRecorderCodecs();
+		}
 	}
 	
 	var fixedPlots = {
@@ -702,7 +728,7 @@
 				dtype: 'int8'
 			});*/
 			plotData(smallBuff);
-			SepiaFW.webAudio.resampleBufferWasm(smallBuff, testFileSampleRate, 16000, 1, quality, function(r){
+			SepiaFW.webAudio.resampleBufferViaSpeex(smallBuff, testFileSampleRate, 16000, 1, quality, function(r){
 				smallBuffRes = r.samples[0];
 				/*smallBuffRes = pcmConvert(r.samples[0], {
 					channels: 1,
@@ -723,32 +749,55 @@
 		return obj;
 	}
 	
+	function showMediRecorderCodecs(){
+		//add codec options
+		var codecSel = document.getElementById("mediaRecorderCodec");
+		codecSel.innerHTML = '<option value="" selected>Default</option>';
+		var selectedCodec = "";
+		var supportedCodecs = SepiaFW.webAudio.getSupportedMediaRecorderCodecs();
+		Object.keys(supportedCodecs).forEach(function(codec){
+			console.log("MediaRecorder codec:", codec, supportedCodecs[codec]);
+			var opt = document.createElement("option");
+			opt.textContent = codec;
+			opt.value = codec;
+			codecSel.appendChild(opt);
+			if (!selectedCodec) selectedCodec = codec;
+		});
+		codecSel.value = selectedCodec;
+	}
 	function createMediaRecorder(stream){
+		//create
 		var chunks = [];
-		if ("MediaRecorder" in window){
-			window.mediaRecorder = new MediaRecorder(stream);
-			mediaRecorder.onerror = function(err){ showLogMessage("mediaRecorderError", err); };
-			mediaRecorder.onstart = function(e){ showLogMessage("mediaRecorderStart", {}); };
-			mediaRecorder.onpause = function(e){ showLogMessage("mediaRecorderPause", {}); };
-			mediaRecorder.onresume = function(e){ showLogMessage("mediaRecorderResume", {}); };
-			mediaRecorder.onstop = function(e) {
+		var mimeType;
+		var recorderOptions = {
+			codec: document.getElementById("mediaRecorderCodec").value,
+			onerror: function(err){ showLogMessage("mediaRecorderError", err); },
+			onstart: function(e){ showLogMessage("mediaRecorderStart", {}); },
+			onpause: function(e){ showLogMessage("mediaRecorderPause", {}); },
+			onresume: function(e){ showLogMessage("mediaRecorderResume", {}); },
+			onstop: function(e){
 				showLogMessage("mediaRecorderStop", {message: "Processing chunks", chunkSize: chunks.length});
-				var blob = new Blob(chunks, { 'type' : 'audio/ogg; codecs=opus' });
+				var blob = new Blob(chunks, {'type' : mimeType});
+				//plotData(...chunks);
 				chunks = [];
 				addWaveToPage(blob);
-			}
-			mediaRecorder.ondataavailable = function(e){
+			},
+			ondataavailable: function(e){
 				if (e && e.data){
 					chunks.push(e.data);
 				}
 			}
-			showLogMessage("mediaRecorderCreated", {});
+		};
+		SepiaFW.webAudio.createAudioRecorder(stream, recorderOptions).then(function(res){
+			mimeType = res.mimeType;
+			showLogMessage("mediaRecorderCreated", "MIME-Type: " + res.mimeType);
+			window.mediaRecorder = res.mediaRecorder;
 			document.getElementById("mediaRecorderControls").style.display = "";
-		}else{
-			showLogMessage("mediaRecorderNotSupported", {});
+			
+		}).catch(function(err){
+			showLogMessage("mediaRecorderError", err);
 			document.getElementById("mediaRecorderControls").style.display = "none";
-		}
-		return window.mediaRecorder;
+		});
 	}
 </script>
 </body>
