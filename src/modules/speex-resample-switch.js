@@ -4,7 +4,7 @@ class SpeexResampler{constructor(a,b,c,d=7){this.channels=a,this.inRate=b,this.o
 
 var speexModule;
 
-class ResampleProcessor extends AudioWorkletProcessor {
+class SpeexResampleProcessor extends AudioWorkletProcessor {
 	
 	get SampleRateException() {
 		return function(message){
@@ -301,4 +301,4 @@ class ResampleProcessor extends AudioWorkletProcessor {
 	}
 }
 
-registerProcessor('resample-switch', ResampleProcessor);
+registerProcessor('speex-resample-switch', SpeexResampleProcessor);
