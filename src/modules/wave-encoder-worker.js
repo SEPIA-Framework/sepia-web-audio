@@ -108,7 +108,7 @@ function getWave(start, end){
 		output: {
 			wav: view,
 			sampleRate: inputSampleRate,
-			totalSamples: (view.byteLength - 44)/_bytesPerSample),
+			totalSamples: ((view.byteLength - 44)/_bytesPerSample),
 			channels: channelCount
 		}
 	});
