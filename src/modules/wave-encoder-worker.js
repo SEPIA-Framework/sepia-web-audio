@@ -65,6 +65,8 @@ let recordedBuffers;
 let recordBufferMaxN;
 
 let gateIsOpen = false;
+let _gateOpenTS = 0;
+let _gateCloseTS = 0;
 let _isFirstValidProcess = true;
 
 function init(){
@@ -79,6 +81,9 @@ function init(){
 	}
 	recordedBuffers = [];
 	_isFirstValidProcess = true;
+	gateIsOpen = false;
+	_gateOpenTS = 0;
+	_gateCloseTS = 0;
 }
 
 //Requests
@@ -107,18 +112,23 @@ function getWave(start, end){
 }
 
 function gateControl(open){
+	var msg = {gate: {}};
 	if (open){
 		//TODO: we should reset some stuff here, for now:
 		if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
 			recordedBuffers = [];		//TODO: should this happen always? only when full? never? leave to getBuffer?
 		}
+		_gateOpenTS = Date.now();
+		gateIsOpen = true;
+		msg.gate.openedAt = _gateOpenTS;
+	}else{
+		_gateCloseTS = Date.now();
+		gateIsOpen = false;
+		msg.gate.openedAt = _gateOpenTS;
+		msg.gate.closedAt = _gateCloseTS;
 	}
-	gateIsOpen = open;
-	postMessage({
-		gate: {
-			isOpen: gateIsOpen
-		}
-	});
+	msg.gate.isOpen = gateIsOpen;
+	postMessage(msg);
 }
 
 //Interface
@@ -206,6 +216,8 @@ function release(options){
 	_lookbackRingBuffer = null;
 	recordedBuffers = null;
 	gateIsOpen = false;
+	_gateOpenTS = 0;
+	_gateCloseTS = 0;
 }
 
 //--- helpers ---
