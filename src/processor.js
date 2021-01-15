@@ -45,6 +45,36 @@ if (!(typeof SepiaFW == "object")){
 	};
 	WebAudio.overwriteSupportedAudioConstraints = {};
 	
+	//Mime types
+	WebAudio.defaultMimeTypesForCodecs = {
+		ogg: "audio/ogg",
+		ogg_opus: "audio/ogg;codecs=opus",
+		ogg_vorbis: "audio/ogg;codecs=vorbis",
+		ogg_speex: "audio/ogg;codecs=speex",
+		opus: "audio/opus",
+		vorbis: "audio/vorbis",
+		speex: "audio/speex",
+		wav: "audio/wav",
+		raw: "audio/wav",
+		webm_ogg_opus: "audio/webm;codecs=opus",
+		webm_ogg_vorbis: "audio/webm;codecs=vorbis",
+		webm_mkv_pcm: "audio/webm;codecs=pcm",		//this is kind of weird stuff ^^
+		mp3: "audio/mpeg",
+		mp4: "audio/mp4"
+	}
+	WebAudio.getSupportedMediaRecorderCodecs = function(){
+		var codecs = {};
+		if (window.MediaRecorder){
+			Object.keys(WebAudio.defaultMimeTypesForCodecs).forEach(function(codec){
+				var mimeType = WebAudio.defaultMimeTypesForCodecs[codec];
+				if (window.MediaRecorder.isTypeSupported(mimeType)){
+					codecs[codec] = mimeType;
+				}
+			});
+		}
+		return codecs;
+	};
+	
 	//AudioContext creator
 	WebAudio.createAudioContext = function(options, ignoreOptions){
 		var contextOptions = {};
@@ -540,7 +570,7 @@ if (!(typeof SepiaFW == "object")){
 							audioOut[device.label] = device.deviceId;
 						}
 					});
-					resolve({input: audioIn, output: audioOut});
+					return resolve({input: audioIn, output: audioOut});
 					
 				}).catch(function(err) {
 					return reject(err);
@@ -634,6 +664,82 @@ if (!(typeof SepiaFW == "object")){
 	
 	//Builders
 	
+	//MediaRecorder
+	WebAudio.createAudioRecorder = function(stream, recorderOptions){
+		if (!recorderOptions) recorderOptions = {};
+		if (!recorderOptions.codec) recorderOptions.codec = "webm_ogg_opus";
+		return new Promise(function(resolve, reject){
+			(async function(){
+				try {
+					var mimeType = recorderOptions.mimeType || WebAudio.defaultMimeTypesForCodecs[recorderOptions.codec] || WebAudio.defaultMimeTypesForCodecs["webm_ogg_opus"];
+					//var chunks = [];
+					if (!window.MediaRecorder){
+						return reject({message: "'MediaRecorder' is not available!", name: "NotSupportedError"});
+					}else if (!MediaRecorder.isTypeSupported(mimeType)){
+						return reject({message: ("MIME-Type '" + mimeType + "' is not supported!"), name: "NotSupportedError"});
+					}else{
+						var mediaRecorder = new MediaRecorder(stream);
+						mediaRecorder.onerror = recorderOptions.onerror || console.error;
+						if (recorderOptions.onstart) mediaRecorder.onstart = recorderOptions.onstart;
+						if (recorderOptions.onpause) mediaRecorder.onpause = recorderOptions.onpause;
+						if (recorderOptions.onresume) mediaRecorder.onresume = recorderOptions.onresume;
+						if (recorderOptions.onstop) mediaRecorder.onstop = recorderOptions.onstop;
+						/*mediaRecorder.onstop = function(e) {
+							var blob = new Blob(chunks, {'type' : mimeType});
+							chunks = [];
+						}*/
+						var onDataAvailable = recorderOptions.ondataavailable || recorderOptions.onprocess;
+						if (onDataAvailable) mediaRecorder.ondataavailable = onDataAvailable;
+						//TODO: implement this properly
+						/*
+						if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
+							if (e && e.data){
+								//chunks.push(e.data);
+								var channels = 1;
+								var sampleRate = 48000;
+								WebAudio.offlineAudioContextBlobDecoder(sampleRate, channels, e.data, function(buffer){
+									onDataAvailable({data: buffer.getChannelData(0)});		//TODO: MONO
+								});
+							}
+						}
+						*/
+						return resolve({mediaRecorder: mediaRecorder, mimeType: mimeType});
+					}
+				}catch (err){
+					return reject(err);
+				}
+			})();
+		});
+	};
+	WebAudio.offlineAudioContextBlobDecoder = function(sampleRate, channels, encodedBlob, callback){
+		blobToArray(encodedBlob, function(encodedArray){
+			var offlineAudioContext = new OfflineAudioContext(channels, encodedArray.byteLength, sampleRate);
+			offlineAudioContext.decodeAudioData(encodedArray, function(buffer){
+				callback(buffer);
+			});
+		});
+	}
+	function blobToArray(blobData, callback){
+		if (typeof blobData.arrayBuffer == "function"){
+			blobData.arrayBuffer().then(function(buffer){
+				callback(buffer);
+			}).catch(function(err){
+				console.error("blobToArray '.arrayBuffer' ERROR", err);
+				callback();
+			});
+		}else{
+			var fr = new FileReader();
+			fr.onload = function(){
+				callback(fr.result);
+			};
+			fr.onerror = function(event){
+				console.error("blobToArray 'FileReader' ERROR", reader.error, event);
+				callback();
+			};
+			fr.readAsArrayBuffer(blobData);
+		}
+	}
+	
 	//White-noise-generator node for testing
 	WebAudio.createWhiteNoiseGeneratorNode = function(noiseGain, options){
 		if (!options) options = {};		//e.g. 'onMessageCallback' and 'targetSampleRate'
@@ -661,7 +767,7 @@ if (!(typeof SepiaFW == "object")){
 					resolve(thisProcessNode);
 					
 				}catch (err){
-					reject(err);
+					return reject(err);
 				}
 			})();
 		});
@@ -683,7 +789,7 @@ if (!(typeof SepiaFW == "object")){
 							audioBufferSourceNode.buffer = buffer;
 							//audioBufferSourceNode.connect(audioContext.destination);
 							audioBufferSourceNode.loop = true;
-							resolve({
+							return resolve({
 								node: audioBufferSourceNode,
 								start: function(){ audioBufferSourceNode.start(); },
 								stop: function(){ audioBufferSourceNode.stop(); },
@@ -691,16 +797,16 @@ if (!(typeof SepiaFW == "object")){
 							});
 						
 						}, function(err){ 
-							reject(err);
+							return reject(err);
 						});
 					}
 					function errorCallback(err){
-						reject(err);
+						return reject(err);
 					}
 					WebAudio.readFileAsBuffer(fileUrl, successCallback, errorCallback);
 					
 				}catch (err){
-					reject(err);
+					return reject(err);
 				}
 			})();
 		});
@@ -744,13 +850,13 @@ if (!(typeof SepiaFW == "object")){
 	}
 	
 	//WASM resampler
-	WebAudio.resampleBufferWasm = function(buffer, inputSampleRate, targetSampleRate, channels, quality, successCallback, errorCallback){
+	WebAudio.resampleBufferViaSpeex = function(buffer, inputSampleRate, targetSampleRate, channels, quality, successCallback, errorCallback){
 		if (!successCallback) successCallback = console.log;
 		if (!errorCallback) errorCallback = console.error;
 		try {
 			var offlineAudioContext = new OfflineAudioContext(channels, buffer.length, inputSampleRate);	//we just need this to setup the module
 			var moduleFolder = WebAudio.defaultProcessorOptions.moduleFolder.replace(/\/$/, "") + "/";
-			var moduleName = "resample-switch";
+			var moduleName = "speex-resample-switch";
 			offlineAudioContext.audioWorklet.addModule(moduleFolder + moduleName + ".js").then(function(){
 				var options = {
 					processorOptions: {
