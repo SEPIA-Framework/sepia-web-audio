@@ -56,6 +56,8 @@ onmessage = function(e) {
 let inputSampleRate;
 let inputSampleSize;
 let channelCount;
+let encoderBitDepth = 16;
+let _bytesPerSample = encoderBitDepth/8;
 
 let lookbackBufferMs;
 let lookbackBufferNeedsReset;
@@ -106,6 +108,7 @@ function getWave(start, end){
 		output: {
 			wav: view,
 			sampleRate: inputSampleRate,
+			totalSamples: (view.byteLength - 44)/_bytesPerSample),
 			channels: channelCount
 		}
 	});
@@ -271,8 +274,8 @@ function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 	//Format description: http://soundfile.sapp.org/doc/WaveFormat/
 	var buffer = new ArrayBuffer(44 + samples.length * 2);
 	var view = new DataView(buffer);
-	var bitDepth = 16;
-	var bytesPerSample = bitDepth/8;
+	var bitDepth = encoderBitDepth;
+	var bytesPerSample = _bytesPerSample;
 	var sampleSize = samples.length;
 	//RIFF identifier
 	wavWriteString(view, 0, 'RIFF');
