@@ -15,7 +15,6 @@
 	<script type="text/javascript" src="src/processor.js"></script>
 	
 	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
-	<!--<script type="text/javascript" src="test-buffer.js"></script>-->
 	
 	<style>
 	* {
@@ -124,6 +123,9 @@
 		background: #000;
 		border-radius: 0;
 	}
+	#micDeviceId {
+		max-width: 160px;
+	}
 	</style>
 </head>
 <body>
@@ -152,6 +154,7 @@
 		</select>
 		<div id="micOptions" class="contorlGroup">
 			<label><b>Mic Options</b></label>
+			<label>deviceId (label):</label><select id="micDeviceId" onchange="setMicOption('deviceId', this.value);"><option value="" selected>Default</option></select>
 			<label>sampleRate:</label><input id="micSampleRate" style="width: 54px;" value="48000" onchange="setMicOption('sampleRate', +this.value);">
 			<label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption('channelCount', +this.value);">
 			<label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption('noiseSuppression', this.checked);">
@@ -416,6 +419,7 @@
 	//Input source options
 	
 	var micAudioConstraintOptionElements = {
+		deviceId: '<label>deviceId (label):</label><select id="micDeviceId" onchange="setMicOption(\'deviceId\', this.value);"><option value="" selected>Default</option></select>',
 		//sampleRate: '<label>sampleRate:</label><input id="micSampleRate" style="width: 54px;" value="48000" onchange="setMicOption(\'sampleRate\', +this.value);">',
 		channelCount: '<label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption(\'channelCount\', +this.value);">',
 		noiseSuppression: '<label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption(\'noiseSuppression\', this.checked);">',
@@ -431,8 +435,25 @@
 			if (oEle){
 				micO.innerHTML += oEle;
 			}else{
-				console.log("Skipped mic contraint option: " + aco);
+				console.log("Skipped mic constraint option: " + aco);
 			}
+		});
+		var devSel = document.getElementById("micDeviceId");
+		SepiaFW.webAudio.getAudioDevices().then(function(devices){
+			window.audioInputDevicesFound = devices.input;
+			Object.keys(devices.input).forEach(function(label, i){
+				var deviceId = devices.input[label];
+				var opt = document.createElement("option");
+				opt.textContent = label;
+				opt.value = deviceId;
+				devSel.appendChild(opt);
+			});
+		}).catch(function(err){
+			console.error("Error in 'getAudioDevices'", err);
+			var opt = document.createElement("option");
+			opt.textContent = "ERROR";
+			opt.value = "";
+			devSel.appendChild(opt);
 		});
 	})();
 	
@@ -532,15 +553,29 @@
 		console.error("wave-encoder", data);
 		if (data.output && data.output.wav){
 			addWaveToPage(data.output.wav);
+			if (data.output.wav.byteLength){
+				var byteLen = data.output.wav.byteLength;
+				var samplesLen = (data.output.wav.byteLength - 44)/2;	//16bit
+				var time = Math.round(samplesLen/data.output.sampleRate*1000);
+				showLogMessage("waveEncoder", "created wave file - byteLength: " + byteLen + ", samples: " + samplesLen + ", time calc.: " + time);
+			}else{
+				showLogMessage("waveEncoder", "created wave file");
+			}
 			
 		}else if (data.output && data.output.buffer){
 			plotData(data.output.buffer);
+			showLogMessage("waveEncoder", "buffer output length: " + data.output.buffer.length);
 		}
 		if (data.gate){
 			waveEncoderGate.className = data.gate.isOpen? "open" : "close";
 			if (data.gate.isOpen === false){
 				//waveEncoderGetBuffer();		//TODO: this destroys the lookback buffer
 				waveEncoderGetWave();
+				if (data.gate.closedAt){
+					showLogMessage("waveEncoder", "gate closed - time open (ms): " + (data.gate.closedAt - data.gate.openedAt));
+				}else{
+					showLogMessage("waveEncoder", "gate closed");
+				}
 			}
 		}
 	}
