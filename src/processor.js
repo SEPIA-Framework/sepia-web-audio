@@ -749,7 +749,7 @@ if (!(typeof SepiaFW == "object")){
 				try {
 					//Audio context and source node
 					var audioContext = WebAudio.createAudioContext(options);
-					await audioContext.resume();
+					await audioContext.suspend();
 					
 					var modulePath = moduleFolder + "white-noise-generator.js";
 					await audioContext.audioWorklet.addModule(modulePath);
@@ -781,7 +781,7 @@ if (!(typeof SepiaFW == "object")){
 				try {
 					//AudioContext and AudioBufferSourceNode - NOTE: maybe useful: new OfflineAudioContext(1, 128, 16000);
 					var audioContext = WebAudio.createAudioContext(options);
-					await audioContext.resume();
+					await audioContext.suspend();
 					var audioBufferSourceNode = audioContext.createBufferSource();
 					
 					function successCallback(arrayBuffer){
