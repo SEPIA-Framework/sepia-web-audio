@@ -60,7 +60,9 @@ if (!(typeof SepiaFW == "object")){
 		webm_ogg_vorbis: "audio/webm;codecs=vorbis",
 		webm_mkv_pcm: "audio/webm;codecs=pcm",		//this is kind of weird stuff ^^
 		mp3: "audio/mpeg",
-		mp4: "audio/mp4"
+		mp4: "audio/mp4",
+		flac: "audio/flac",
+		mpeg: "audio/mpeg"
 	}
 	WebAudio.getSupportedMediaRecorderCodecs = function(){
 		var codecs = {};
@@ -175,7 +177,6 @@ if (!(typeof SepiaFW == "object")){
 				}else{
 					await mainAudioContext.resume();
 				}
-				await createModules();
 			}
 			return mainAudioContext;
 		}
@@ -337,7 +338,9 @@ if (!(typeof SepiaFW == "object")){
 			var processNodes = [source];	//TODO: handle this for workers as well
 			var audioWorkletNodes = [];		//all worklets will be connected in row
 			
-			//Connect other nodes?
+			//TODO: check 'metaInfo.type' and 'metaInfo.hasWorkletSupport'
+			
+			//Connect other modules (nodes/workers)?
 			addModules(processNodes, function(info){
 				modulesInitInfo = info;
 				completeInitCondition("modulesSetup");
@@ -450,7 +453,7 @@ if (!(typeof SepiaFW == "object")){
 		//Custom source test
 		if (options.customSourceTest){
 			//NOTE: This is just for testing!
-			var thisProcessNode;
+			let thisProcessNode;
 			WebAudio.createWhiteNoiseGeneratorNode(0.1, {
 				targetSampleRate: options.targetSampleRate
 			})
@@ -474,17 +477,21 @@ if (!(typeof SepiaFW == "object")){
 		//Custom source node
 		}else if (options.customSource){
 			//Get audio context and source node then add modules
-			var thisProcessNode = options.customSource.node;
+			let thisProcessNode = options.customSource.node;
 			mainAudioContext = thisProcessNode.context;
 			createModules().then(function(){
 				//continue with source handler
 				sourceHandler(thisProcessNode, {
 					onBeforeStart: options.customSource.beforeStart,
 					onAfterStart: options.customSource.start,
-					onBeforeStop: options.customSource.stop, 
+					onBeforeStop: options.customSource.stop,
+					onAfterStop: options.customSource.afterStop,
+					onBeforeRelease: options.customSource.beforeRelease,
 					onAfterRelease: options.customSource.release
-				}, {
-					type: "custom"		//TODO: add more
+				},{
+					type: (options.customSource.type || "custom"),		//TODO: add more?
+					hasWorkletSupport: (options.customSource.type.hasWorkletSupport != undefined)? 
+						options.customSource.type.hasWorkletSupport : true
 				});
 				
 			}).catch(function(err){
@@ -498,9 +505,15 @@ if (!(typeof SepiaFW == "object")){
 		
 		//Official MediaDevices interface using microphone
 		}else{
+			let micRes;
 			WebAudio.getMicrophone(options, createOrUpdateAudioContext).then(function(res){
+				//add modules (mainAudioContext is already set)
+				micRes = res;
+				return createModules();
+				
+			}).then(function(){
 				//continue with source handler
-				sourceHandler(res.source, {}, res.info);
+				sourceHandler(micRes.source, {}, micRes.info);
 				
 			}).catch(function(err){
 				if (typeof err == "string"){
@@ -600,6 +613,7 @@ if (!(typeof SepiaFW == "object")){
 		return new Promise(function(resolve, reject){
 			(async function(){
 				var constraints = JSON.parse(JSON.stringify(WebAudio.getSupportedAudioConstraints()));
+				//TODO: make microphone constraints accessible via options
 				if (constraints.sampleRate && options.targetSampleRate) constraints.sampleRate = options.targetSampleRate;
 				//other options: latency: double, sampleSize: 16
 				var audioVideoConstraints = { 
@@ -646,7 +660,9 @@ if (!(typeof SepiaFW == "object")){
 							var track0 = source.mediaStream.getAudioTracks()[0];
 							info.label = track0.label;
 							if (track0.getSettings) info.settings = track0.getSettings();
-						} catch(e) {};
+							else info.settings = {};
+							info.settings.sampleRate = audioContext.sampleRate;
+						}catch(e){};
 					}
 					
 					return resolve({source: source, info: info});
@@ -665,47 +681,111 @@ if (!(typeof SepiaFW == "object")){
 	//Builders
 	
 	//MediaRecorder
-	WebAudio.createAudioRecorder = function(stream, recorderOptions){
+	WebAudio.createAudioRecorder = function(stream, sourceInfo, recorderOptions){
 		if (!recorderOptions) recorderOptions = {};
 		if (!recorderOptions.codec) recorderOptions.codec = "webm_ogg_opus";
 		return new Promise(function(resolve, reject){
 			(async function(){
 				try {
+					var sampleRate = sourceInfo.settings.sampleRate;
+					if (!sampleRate){
+						return reject({message: "Sample-rate unknown! Please add correct 'sourceInfo'.", name: "AudioRecorderError"});
+					}
+					var channels = sourceInfo.settings.channelCount;
+					if (channels > 1){
+						//TODO: we only support MONO atm
+						return reject({message: "Sorry, but this recorder only supports MONO audio at the moment.", name: "NotSupportedError"});
+					}
 					var mimeType = recorderOptions.mimeType || WebAudio.defaultMimeTypesForCodecs[recorderOptions.codec] || WebAudio.defaultMimeTypesForCodecs["webm_ogg_opus"];
+					var sampleTime = recorderOptions.sampleTime || (recorderOptions.chunkSize? Math.floor(1000/sampleRate * recorderOptions.chunkSize) : 0);
+					if (sampleTime && recorderOptions.decodeToAudioBuffer){
+						console.error("WARNING: Partial decoding is not supported at the moment! It is possible but requires adding custom headers for each blob!");
+						//TODO: try adding custom blob headers (proof of concept: add the first 2 ogg blobs to every following blob)
+					}
 					//var chunks = [];
 					if (!window.MediaRecorder){
 						return reject({message: "'MediaRecorder' is not available!", name: "NotSupportedError"});
 					}else if (!MediaRecorder.isTypeSupported(mimeType)){
 						return reject({message: ("MIME-Type '" + mimeType + "' is not supported!"), name: "NotSupportedError"});
 					}else{
-						var mediaRecorder = new MediaRecorder(stream);
+						var mediaRecorder = new MediaRecorder(stream, {
+							mimeType: mimeType,
+							bitsPerSecond: (sampleRate * 2 * channels)
+						});
+						var startedTS, stoppedTS;
+						var triggeredLastData = false;
+						
 						mediaRecorder.onerror = recorderOptions.onerror || console.error;
 						if (recorderOptions.onstart) mediaRecorder.onstart = recorderOptions.onstart;
 						if (recorderOptions.onpause) mediaRecorder.onpause = recorderOptions.onpause;
 						if (recorderOptions.onresume) mediaRecorder.onresume = recorderOptions.onresume;
-						if (recorderOptions.onstop) mediaRecorder.onstop = recorderOptions.onstop;
-						/*mediaRecorder.onstop = function(e) {
-							var blob = new Blob(chunks, {'type' : mimeType});
-							chunks = [];
-						}*/
-						var onDataAvailable = recorderOptions.ondataavailable || recorderOptions.onprocess;
-						if (onDataAvailable) mediaRecorder.ondataavailable = onDataAvailable;
-						//TODO: implement this properly
-						/*
-						if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
-							if (e && e.data){
-								//chunks.push(e.data);
-								var channels = 1;
-								var sampleRate = 48000;
-								WebAudio.offlineAudioContextBlobDecoder(sampleRate, channels, e.data, function(buffer){
-									onDataAvailable({data: buffer.getChannelData(0)});		//TODO: MONO
-								});
+						var onStop = recorderOptions.onstop;
+						mediaRecorder.onstop = function(e){
+							//var blob = new Blob(chunks, {'type' : mimeType});
+							//chunks = [];
+							console.log("onstop", "state", mediaRecorder.state);		//DEBUG TODO: remove
+							if (onStop && !recorderOptions.decodeToAudioBuffer){
+								onStop();		//TODO: we delay stop if we need to decode the blob first to keep original order
 							}
 						}
-						*/
-						return resolve({mediaRecorder: mediaRecorder, mimeType: mimeType});
+						var onDataAvailable = recorderOptions.ondataavailable || recorderOptions.onprocess;
+						if (recorderOptions.decodeToAudioBuffer){
+							//decode chunks
+							if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
+								//catch last 'ondataavailable' and delay stop
+								console.log("ondataavailable", "state", mediaRecorder.state);		//DEBUG TODO: remove
+								if (mediaRecorder.state == "inactive") triggeredLastData = true;
+								if (e && e.data){
+									let startDecode = Date.now();
+									WebAudio.offlineAudioContextBlobDecoder(sampleRate, channels, e.data, function(audioBuffer){
+										if (audioBuffer){
+											onDataAvailable({data: audioBuffer.getChannelData(0), decodeTime: (Date.now() - startDecode)});		//TODO: is MONO
+										}
+										if (!triggeredLastData && recorderOptions.recordLimitMs && ((Date.now() - startedTS) >= recorderOptions.recordLimitMs)){
+											stop();
+										}else if (triggeredLastData){
+											if (onStop) onStop();		//NOTE: we have not stop-event here, but is there anything we need?
+										}
+									});
+								}
+							}
+						}else{
+							if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
+								//chunks.push(e.data);
+								onDataAvailable(e);
+								if (recorderOptions.recordLimitMs && ((Date.now() - startedTS) >= recorderOptions.recordLimitMs)){
+									stop();
+								}
+							}
+						}
+						var stopTimer;
+						var stop = function(){
+							if (stopTimer) clearTimeout(stopTimer);
+							stoppedTS = Date.now();
+							console.log("AudioRecorder state:", mediaRecorder.state);		//DEBUG
+							if (mediaRecorder.state != "inactive") mediaRecorder.stop();
+						};
+						var start = function(){
+							startedTS = Date.now();
+							stoppedTS = undefined;
+							triggeredLastData = false;
+							if (sampleTime){
+								mediaRecorder.start(sampleTime);
+							}else{
+								mediaRecorder.start();
+								if (recorderOptions.recordLimitMs){
+									stopTimer = setTimeout(stop, recorderOptions.recordLimitMs);	//NOTE: we need this because we have no intermediate results
+								}
+							}
+						};
+						return resolve({
+							getMediaRecorder: function(){ return mediaRecorder; }, mimeType: mimeType, sourceInfo: sourceInfo, 
+							sampleTime: sampleTime,
+							start: start, stop: stop
+						});
 					}
 				}catch (err){
+					console.error("AudioRecorder", err);
 					return reject(err);
 				}
 			})();
@@ -713,14 +793,24 @@ if (!(typeof SepiaFW == "object")){
 	};
 	WebAudio.offlineAudioContextBlobDecoder = function(sampleRate, channels, encodedBlob, callback){
 		blobToArray(encodedBlob, function(encodedArray){
-			var offlineAudioContext = new OfflineAudioContext(channels, encodedArray.byteLength, sampleRate);
-			offlineAudioContext.decodeAudioData(encodedArray, function(buffer){
-				callback(buffer);
-			});
+			if (!encodedArray){
+				callback();
+			}else{
+				var offlineAudioContext = new OfflineAudioContext(channels, encodedArray.byteLength, sampleRate);
+				offlineAudioContext.decodeAudioData(encodedArray, function(audioBuffer){
+					callback(audioBuffer);
+				}, function(err){
+					console.error("offlineAudioContext.decodeAudioData ERROR", err);
+					callback();
+				});
+			}
 		});
 	}
 	function blobToArray(blobData, callback){
-		if (typeof blobData.arrayBuffer == "function"){
+		console.log("blobData", blobData);		//DEBUG
+		if (!blobData || !blobData.size){
+			callback();
+		}else if (typeof blobData.arrayBuffer == "function"){
 			blobData.arrayBuffer().then(function(buffer){
 				callback(buffer);
 			}).catch(function(err){
@@ -738,6 +828,52 @@ if (!(typeof SepiaFW == "object")){
 			};
 			fr.readAsArrayBuffer(blobData);
 		}
+	}
+	WebAudio.blobToArray = blobToArray;
+	
+	//Legacy script processor node
+	WebAudio.createLegacyMicrophoneScriptProcessor = function(options){
+		if (!options) options = {};		//e.g. 'destinationNode' and 'targetSampleRate' (see 'getMicrophone' for more)
+		return WebAudio.getMicrophone(options, undefined).then(function(res){
+			//get context
+			var source = res.source;
+			var audioContext = source.context;
+			var sampleRate = audioContext.sampleRate;
+
+			var bufferSize = options.bufferSize || 2048;	//TODO: set undefined for auto-size?
+			//for webkit?: bufferSize = 4096 * Math.pow(2, Math.ceil(Math.log(this.sampler.resampleRatio) / Math.log(2))); //2, 4, 8,...
+			var channels = 1; //options.channels || 1;		//TODO: only MONO
+			//var targetSampleRate = options.targetSampleRate;
+			
+			var processNode = audioContext.createScriptProcessor(bufferSize, channels, channels);	//bufferSize, numberOfInputChannels, numberOfOutputChannels
+			source.connect(processNode);
+
+			if (options.onmessage){
+				//this resembles the module interface
+				processNode.onaudioprocess = function(e){
+					if (e && e.inputBuffer){
+						var samples = e.inputBuffer.getChannelData(0);	//TODO: only MONO
+						options.onmessage({
+							samples: [samples],
+							sampleRate: sampleRate,
+							channels: channels
+						});		
+					}
+				}
+			}else if (options.onaudioprocess){
+				//this is the classic script processor callback
+				processNode.onaudioprocess = options.onaudioprocess;
+			}
+			
+			return {
+				node: processNode,
+				start: function(){},
+				stop: function(){},
+				release: function(){},		//TODO: ?!?
+				type: "mic-processor-switch",
+				hasWorkletSupport: false 	//does not fit into audio processing thread (normal worklets)
+			};
+		});
 	}
 	
 	//White-noise-generator node for testing
