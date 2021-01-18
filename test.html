@@ -15,6 +15,8 @@
 	<script type="text/javascript" src="src/processor.js"></script>
 	
 	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
+	<script type="text/javascript" src="src/resources/opus-file-splitter.js"></script>
+	<script type="text/javascript" src="src/resources/fir-filter-resampler.js"></script>
 	
 	<style>
 	* {
@@ -153,6 +155,7 @@
 			<option value="whiteNoise">White-Noise Generator</option>
 			<option value="file1">File Stream 1</option>
 			<option value="file2">File Stream 2</option>
+			<option value="legacySpMic">Legacy ScriptProcessor Mic</option>
 		</select>
 		<div id="micOptions" class="contorlGroup">
 			<label><b>Mic Options</b></label>
@@ -193,10 +196,14 @@
 	<div id="mediaRecorderControls" class="contorlGroup" style="display:none;">
 		<label><b>Media Recorder</b></label>
 		<label>Codec/format:</label><select id="mediaRecorderCodec"><option value="" selected>Default</option></select>
-		<label>Control:</label><button onclick="mediaRecorder.start();">Capture</button><button onclick="mediaRecorder.stop();">Stop</button>
+		<label>Realtime Decoding:</label><input id="mediaRecorderDecode" type="checkbox">
+		<label>Record Max. (ms):</label><input id="mediaRecorderRecordMax" class="small" value="6000"><div style="flex: 1 0 100%;"></div>
+		<label>Control:</label><button onclick="startMediaRecorder();">Capture</button><button onclick="stopMediaRecorder();">Stop</button>
+		<label>Export:</label><button onclick="getRawDataFromMediaRecorder();">Show Decoded Data</button>
 	</div>
 	<div class="contorlGroup">
 		<label><b>Switches:</b></label>
+		<label>Use volume-proc.:</label><input type="checkbox" id="useVolumeProcessor" checked onchange="useVolumeProcessor(this.checked);">
 		<label>Use resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);">
 		<label>Use wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);">
 		<label>Plot 1:</label><input type="checkbox" id="usePlot1" checked onchange="usePlot(1, this);">
@@ -217,7 +224,7 @@
 	var logElement = document.getElementById('logMessages');
 	
 	function showLogMessage(msg, data){
-		var info = (typeof data == "object")? JSON.stringify(data) : data; //JSON.stringify(data, "", 2) : data;
+		var info = (typeof data == "object")? (data.name && data.message? (data.name + " - " + data.message) : JSON.stringify(data)) : data;
 		logElement.textContent += "\n" + (new Date().toLocaleTimeString()) + " - " + (msg + " - " + info);
 		logElement.scrollTo(0, logElement.scrollHeight);
 	}
@@ -235,7 +242,7 @@
 		console.log("onReady", info);
 		
 		//for testing:
-		if (!doUseWaveEncoder && rec.source.mediaStream) createMediaRecorder(rec.source.mediaStream);
+		if (!doUseWaveEncoder && rec.source.mediaStream) createMediaRecorder(rec.source.mediaStream, info.sourceInfo);
 		else document.getElementById("mediaRecorderControls").style.display = "none";
 	}
 	
@@ -293,6 +300,16 @@
 			//customSourceNode: file audio buffer
 			try {
 				customSource = await createFileSource(audioSource);
+			}catch (err){
+				onProcessorInitError(err);
+				return;
+			}
+		}else if (audioSource == "legacySpMic"){
+			//customSourceNode: legacy script processor (with mic source)
+			try {
+				customSource = await SepiaFW.webAudio.createLegacyMicrophoneScriptProcessor({
+					targetSampleRate: targetSampleRate
+				});
 			}catch (err){
 				onProcessorInitError(err);
 				return;
@@ -367,7 +384,10 @@
 		window.waveEncoder = waveEncoder;
 		
 		//put together modules
-		var activeModules = [volumeProcessor];		//[volumeMeter, resampler, waveEncoder]
+		var activeModules = [];
+		if (doUseVolumeProcessor){
+			activeModules.push(volumeProcessor);
+		}
 		if (doUseResampler){
 			activeModules.push(resampler);
 		}else{
@@ -466,7 +486,7 @@
 	
 	function inputSourceChanged(ele){
 		if (!ele) ele = sourceSelector;
-		if (ele.value == "mic"){
+		if (ele.value == "mic" || ele.value == "legacySpMic"){
 			document.getElementById("micOptions").style.display = "";
 		}else{
 			document.getElementById("micOptions").style.display = "none";
@@ -474,6 +494,7 @@
 	}
 	inputSourceChanged();
 	function setMicOption(optionName, value){
+		//This is the 'brute-force' method to set microphone constraints ... but they are not yet accessible via options
 		console.log("Set mic constraint option", optionName, value);
 		SepiaFW.webAudio.overwriteSupportedAudioConstraints[optionName] = value;
 	}
@@ -495,6 +516,7 @@
 	
 	//Audio node data/visualizations:
 	
+	var doUseVolumeProcessor = document.getElementById("useVolumeProcessor").checked;
 	var volMeterOutBar = document.getElementById('volumeMeterNodeOutput').firstChild;
 	var volGain = +document.getElementById('volumeMeterGain').value;
 	var volProcFps = +document.getElementById('volumeMeterFps').value;
@@ -515,6 +537,14 @@
 		//console.log("volume-bar data", data);
 		var volPercent = Math.min(100, Math.round(vol * 100));
 		volMeterOutBar.style.width = (volPercent + "%");
+	}
+	function useVolumeProcessor(useIt){
+		doUseVolumeProcessor = useIt;
+		if (useIt){
+			document.getElementById("volumeMeterControls").style.display = "";
+		}else{
+			document.getElementById("volumeMeterControls").style.display = "none";
+		}
 	}
 	
 	var doUseResampler = document.getElementById("useResampler").checked;
@@ -615,7 +645,7 @@
 		}else{
 			document.getElementById("waveEncoderControls").style.display = "none";
 			document.getElementById("mediaRecorderControls").style.display = "";
-			showMediRecorderCodecs();
+			showMediaRecorderCodecs();
 		}
 	}
 	
@@ -705,6 +735,100 @@
 			}
 		}
 	}
+	
+	function showMediaRecorderCodecs(){
+		//add codec options
+		var codecSel = document.getElementById("mediaRecorderCodec");
+		codecSel.innerHTML = '<option value="" selected>Default</option>';
+		var selectedCodec = "";
+		var supportedCodecs = SepiaFW.webAudio.getSupportedMediaRecorderCodecs();
+		Object.keys(supportedCodecs).forEach(function(codec){
+			console.log("MediaRecorder codec:", codec, supportedCodecs[codec]);
+			var opt = document.createElement("option");
+			opt.textContent = codec;
+			opt.value = codec;
+			codecSel.appendChild(opt);
+			if (!selectedCodec) selectedCodec = codec;
+		});
+		codecSel.value = selectedCodec;
+	}
+	function createMediaRecorder(stream, sourceInfo){
+		//create
+		mediaRecorderChunks = [];
+		mediaRecorderSourceInfo = sourceInfo;
+		var mimeType;
+		var decodeToAudioBuffer = document.getElementById("mediaRecorderDecode").checked;
+		if (decodeToAudioBuffer){
+			showLogMessage("mediaRecorderWarning", "This recorder does not yet support decoding of chunks.");
+		}
+		var recordLimitMs = +document.getElementById("mediaRecorderRecordMax").value;
+		var codec = document.getElementById("mediaRecorderCodec").value;
+		console.log("AudioRecorder selected codec", codec);
+		var recorderOptions = {
+			codec: codec,
+			decodeToAudioBuffer: decodeToAudioBuffer,
+			recordLimitMs: recordLimitMs,
+			chunkSize: 2048,
+			onerror: function(err){ showLogMessage("mediaRecorderError", err); },
+			onstart: function(e){ showLogMessage("mediaRecorderStart", {}); },
+			onpause: function(e){ showLogMessage("mediaRecorderPause", {}); },
+			onresume: function(e){ showLogMessage("mediaRecorderResume", {}); },
+			onstop: function(e){
+				console.error("onstop");		//DEBUG
+				showLogMessage("mediaRecorderStop", {message: "Recorder stopped", chunkSize: mediaRecorderChunks.length});
+				if (decodeToAudioBuffer){
+					if (mediaRecorderChunks.length) plotData(...mediaRecorderChunks);
+				}else{
+					var blob = new Blob(mediaRecorderChunks, {'type' : mimeType});
+					addWaveToPage(blob);
+				}
+			},
+			ondataavailable: function(e){
+				if (e && e.data){
+					console.error("ondataavailable");		//DEBUG
+					mediaRecorderChunks.push(e.data);
+					//e.decodeTime
+				}
+			}
+		};
+		SepiaFW.webAudio.createAudioRecorder(stream, mediaRecorderSourceInfo, recorderOptions).then(function(res){
+			mimeType = res.mimeType;
+			showLogMessage("mediaRecorderCreated", "MIME-Type: " + res.mimeType + ", sample-time: " + res.sampleTime);
+			window.audioRecorder = res;
+			document.getElementById("mediaRecorderControls").style.display = "";
+			
+		}).catch(function(err){
+			showLogMessage("mediaRecorderError", err);
+			document.getElementById("mediaRecorderControls").style.display = "none";
+		});
+	}
+	function startMediaRecorder(){
+		mediaRecorderChunks = [];
+		window.audioRecorder.start();
+	}
+	function stopMediaRecorder(){
+		window.audioRecorder.stop();
+	}
+	function getRawDataFromMediaRecorder(){
+		if (mediaRecorderChunks.length){
+			var start = Date.now();
+			//console.log("mediaRecorderSourceInfo", mediaRecorderSourceInfo);
+			function callback(audioBuffer){
+				console.log("decode time: " + (Date.now() - start));
+				var channelData = audioBuffer.getChannelData(0);
+				plotData(channelData);
+				console.log("decode+plot time: " + (Date.now() - start));
+			}
+			var sampleRate = mediaRecorderSourceInfo.settings.sampleRate;
+			var channels = mediaRecorderSourceInfo.settings.channelCount;
+			SepiaFW.webAudio.offlineAudioContextBlobDecoder(sampleRate, channels, new Blob(mediaRecorderChunks, {type: window.audioRecorder.mimeType}), callback);
+		}
+	}
+	var mediaRecorderChunks = [];
+	var mediaRecorderSourceInfo;
+	
+	//-----------------------------------------------------
+	
 	function testResampler(obj, quality){
 		if (!obj) obj = {};
 		if (!quality) quality = 0;
@@ -748,56 +872,21 @@
 		}, console.error);
 		return obj;
 	}
-	
-	function showMediRecorderCodecs(){
-		//add codec options
-		var codecSel = document.getElementById("mediaRecorderCodec");
-		codecSel.innerHTML = '<option value="" selected>Default</option>';
-		var selectedCodec = "";
-		var supportedCodecs = SepiaFW.webAudio.getSupportedMediaRecorderCodecs();
-		Object.keys(supportedCodecs).forEach(function(codec){
-			console.log("MediaRecorder codec:", codec, supportedCodecs[codec]);
-			var opt = document.createElement("option");
-			opt.textContent = codec;
-			opt.value = codec;
-			codecSel.appendChild(opt);
-			if (!selectedCodec) selectedCodec = codec;
-		});
-		codecSel.value = selectedCodec;
-	}
-	function createMediaRecorder(stream){
-		//create
-		var chunks = [];
-		var mimeType;
-		var recorderOptions = {
-			codec: document.getElementById("mediaRecorderCodec").value,
-			onerror: function(err){ showLogMessage("mediaRecorderError", err); },
-			onstart: function(e){ showLogMessage("mediaRecorderStart", {}); },
-			onpause: function(e){ showLogMessage("mediaRecorderPause", {}); },
-			onresume: function(e){ showLogMessage("mediaRecorderResume", {}); },
-			onstop: function(e){
-				showLogMessage("mediaRecorderStop", {message: "Processing chunks", chunkSize: chunks.length});
-				var blob = new Blob(chunks, {'type' : mimeType});
-				//plotData(...chunks);
-				chunks = [];
-				addWaveToPage(blob);
-			},
-			ondataavailable: function(e){
-				if (e && e.data){
-					chunks.push(e.data);
-				}
-			}
-		};
-		SepiaFW.webAudio.createAudioRecorder(stream, recorderOptions).then(function(res){
-			mimeType = res.mimeType;
-			showLogMessage("mediaRecorderCreated", "MIME-Type: " + res.mimeType);
-			window.mediaRecorder = res.mediaRecorder;
-			document.getElementById("mediaRecorderControls").style.display = "";
+	function testResampler2(){
+		//FirFilterResampler
+		var buff = new Float32Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
+		buff = [...buff, ...buff, ...buff];
+		buff = buff.map(function(num){ return (num - 9)/17; });
+		plotData(buff);
+		
+		var resampler = new FirFilterResampler().getProcessor(48000, 16000, 127);
+		console.log("filterArray", resampler.filterArray);
+		if (resampler.filterArray) plotData(resampler.filterArray);
+		
+		var buffRes = resampler.process(buff);
 			
-		}).catch(function(err){
-			showLogMessage("mediaRecorderError", err);
-			document.getElementById("mediaRecorderControls").style.display = "none";
-		});
+		plotData(buffRes);
+		return {a: buff, b: buffRes};
 	}
 </script>
 </body>
