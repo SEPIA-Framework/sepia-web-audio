@@ -186,14 +186,9 @@ if (!(typeof SepiaFW == "object")){
 			}
 			for (let i=0; i<options.modules.length; i++){
 				let module = options.modules[i];
-				let moduleType, moduleName;
-				if (typeof module == "object"){
-					moduleType = ((module.type && module.type == "worker") || module.isWorker)? 2 : 1; 	//1: AudioWorklet, 2: Web Worker
-					moduleName = module.name;
-				}else{
-					moduleType = 1;
-					moduleName = module;
-				}
+				let info = getModuleInfo(module);
+				let moduleType = info.moduleType;	//1: AudioWorklet, 2: Web Worker, 3: Script Processor (legacy), 4: Audio Node (legacy)
+				let moduleName = info.moduleName;
 				if (moduleType == 1){
 					//TODO: add option "pathUrl"?
 					let modulePath = moduleFolder + moduleName + ".js";
@@ -204,11 +199,45 @@ if (!(typeof SepiaFW == "object")){
 						console.error(e);
 						if (options.debugLog) options.debugLog("FAILED to add audioWorklet module: " + modulePath + " - Msg.: " + e.name + ", " + e.message);
 					}
-				}else{
+				}else if (moduleType == 2){
 					let modulePath = moduleFolder + moduleName.replace(/-worker$/, "") + '-worker.js';
 					if (options.debugLog) options.debugLog("Adding worker module: " + modulePath);
+					
+				}else if (moduleType == 3){
+					//TODO: ...
+					throw {name: "CreateModuleError", message: "ScriptProcessor nodes are currently not supported as modules (only source)."};
+				
+				}else if (moduleType == 4){
+					//TODO: ...
+					throw {name: "CreateModuleError", message: "AudioNodes are currently not supported as modules (you can use them as custom source)."};
+				
+				}else{
+					throw {name: "CreateModuleError", message: "Module type unknown."};
 				}
 			}
+		}
+		function getModuleInfo(module){
+			//supports "string" (name) or "object" with options
+			var moduleType, moduleName, moduleSetup;
+			if (typeof module == "object"){
+				//1: AudioWorklet, 2: Web Worker, 3: Script Processor (legacy), 4: Audio Node (legacy)
+				if ((module.type && module.type == "worker") || module.isWorker){
+					moduleType = 2;
+				}else if (module.type && module.type == "scriptProcessor"){
+					moduleType = 3;
+				}else if (module.type && module.type == "audioNode"){
+					moduleType = 4;
+				}else{
+					moduleType = 1;
+				}
+				moduleName = module.name;
+				moduleSetup = module.setup || module.settings;
+			}else{
+				moduleType = 1;
+				moduleName = module;
+				moduleSetup = {};
+			}
+			return {moduleType: moduleType, moduleName: moduleName, moduleSetup: moduleSetup};
 		}
 		
 		//States
@@ -231,28 +260,26 @@ if (!(typeof SepiaFW == "object")){
 		}
 		
 		//Add audio worklets
-		function addModules(processNodes, completeCallback){
+		function addModules(processNodes, sourceHasWorkletSupport, completeCallback){
 			if (options.modules && options.modules.length){
 				var initInfo = new Array(options.modules.length);
 				var n = options.modules.length;
 				options.modules.forEach(function(module, i){
 					addInitCondition("module-" + i);
-					//supports "string" (name) or "object" with options
-					var moduleType, moduleName, moduleSetup;
-					if (typeof module == "object"){
-						moduleType = ((module.type && module.type == "worker") || module.isWorker)? 2 : 1; 	//1: AudioWorklet, 2: Web Worker
-						moduleName = module.name;
-						moduleSetup = module.setup || module.settings;
-					}else{
-						moduleType = 1;
-						moduleName = module;
-						moduleSetup = {};
-					}
+					
+					var info = getModuleInfo(module);
+					var moduleType = info.moduleType;	//1: AudioWorklet, 2: Web Worker, 3: Script Processor (legacy), 4: Audio Node (legacy)
+					var moduleName = info.moduleName;
+					var moduleSetup = info.moduleSetup;
+					
 					//add some context info
 					var fullOptions =  moduleSetup.options || {};
 					var thisProcessNode;
 					function onMessage(event){
-						if (event && event.data && event.data.moduleState == 1){
+						if (!event || event.data == undefined){
+							//TODO: simply ignore?
+						}else if (event.data.moduleState == 1){
+							//STATE
 							completeInitCondition("module-" + i);
 							if (event.data.moduleInfo) thisProcessNode.moduleInfo = event.data.moduleInfo;
 							initInfo[i] = {
@@ -262,10 +289,22 @@ if (!(typeof SepiaFW == "object")){
 							if (--n == 0){
 								completeCallback(initInfo);
 							}
+						}else if (event.data.moduleResponse){
+							//RESPONSE to "on-demand" request
+							//TODO: ignore?
 						}else if (moduleSetup.sendToModules){
-							moduleSetup.sendToModules.forEach(function(n){
-								processNodes[n].sendToModule({ctrl: {action: "process", data: event.data}});
-							});
+							//data for processing or custom event?
+							if (event.data.moduleEvent){
+								//EVENT
+								moduleSetup.sendToModules.forEach(function(n){
+									processNodes[n].sendToModule({ctrl: {action: "handle", data: event.data}});
+								});
+							}else{
+								//PROCESS (default)
+								moduleSetup.sendToModules.forEach(function(n){
+									processNodes[n].sendToModule({ctrl: {action: "process", data: event.data}});
+								});
+							}
 						}
 						if (moduleSetup.onmessage){
 							moduleSetup.onmessage(event.data, processNodes);
@@ -282,9 +321,12 @@ if (!(typeof SepiaFW == "object")){
 							initializerError({message: "Error during setup of module: " + thisProcessNode.moduleName, name: "ProcessorInitError"});
 						}
 					}
-					
+
 					//AudioWorkletProcessor
 					if (moduleType == 1){
+						if (!sourceHasWorkletSupport){
+							throw {name: "AddModuleError", message: ("Source does not support 'AudioWorkletProcessor' (use only workers instead) - name: " + moduleName)};
+						}
 						if (!fullOptions.processorOptions) fullOptions.processorOptions = fullOptions.setup || {};	//common field is "setup"
 						if (!fullOptions.processorOptions.ctxInfo){
 							fullOptions.processorOptions.ctxInfo = {
@@ -299,7 +341,7 @@ if (!(typeof SepiaFW == "object")){
 						thisProcessNode.sendToModule = function(msg){ thisProcessNode.port.postMessage(msg); };
 					
 					//Web Worker
-					}else{
+					}else if (moduleType == 2){
 						if (!fullOptions.setup) fullOptions.setup = {};
 						if (!fullOptions.setup.ctxInfo){
 							fullOptions.setup.ctxInfo = {
@@ -313,9 +355,40 @@ if (!(typeof SepiaFW == "object")){
 						thisProcessNode.onerror = onError;
 						thisProcessNode.sendToModule = function(msg){ thisProcessNode.postMessage(msg); };
 						thisProcessNode.sendToModule({ctrl: {action: "construct", options: fullOptions}});
+					
+					//Script Processor
+					}else if (moduleType == 3){
+						throw {name: "AddModuleError", message: "ScriptProcessor nodes are currently not supported as modules (only source)."};
+					
+					//Audio Node
+					}else if (moduleType == 4){
+						throw {name: "AddModuleError", message: "AudioNodes are currently not supported as modules (you can use them as custom source)."};
+						
+					}else{
+						throw {name: "AddModuleError", message: "Unknown module type."};
 					}
 					thisProcessNode.moduleType = moduleType;
 					module.handle = thisProcessNode;
+					
+					//adapt module to first non-worklet source?
+					if (!sourceHasWorkletSupport && i == 0){
+						var source = processNodes[0];
+						if (!source.onmessage){
+							throw {name: "AddModuleError", message: "If source is not compatible to 'AudioWorklet' it has to have a 'onmessage' event to get the processed data."};
+						}
+						source.onmessage = function(e){
+							//like 'sendToModules' this can be event or data for processing
+							if (!e || e.data == undefined){
+								//TODO: ignore?
+							}else if (e.data.moduleEvent || e.data.sourceEvent){
+								//EVENT
+								thisProcessNode.sendToModule({ctrl: {action: "handle", data: e.data}});
+							}else{
+								//PROCESS (default)
+								thisProcessNode.sendToModule({ctrl: {action: "process", data: e.data}});
+							}
+						}
+					}
 					
 					processNodes.push(thisProcessNode);
 				});
@@ -338,17 +411,24 @@ if (!(typeof SepiaFW == "object")){
 			var processNodes = [source];	//TODO: handle this for workers as well
 			var audioWorkletNodes = [];		//all worklets will be connected in row
 			
-			//TODO: check 'metaInfo.type' and 'metaInfo.hasWorkletSupport'
+			//check 'metaInfo.type' and 'metaInfo.hasWorkletSupport'
+			var sourceHasWorkletSupport = true;
+			if (metaInfo.hasWorkletSupport != undefined){
+				sourceHasWorkletSupport = metaInfo.hasWorkletSupport;
+			}else if (metaInfo.type == "scriptProcessor"){
+				sourceHasWorkletSupport = false;
+			}
+			//TODO: use sourceHasWorkletSupport
 			
 			//Connect other modules (nodes/workers)?
-			addModules(processNodes, function(info){
+			addModules(processNodes, sourceHasWorkletSupport, function(info){
 				modulesInitInfo = info;
 				completeInitCondition("modulesSetup");
 				thisProcessor.processNodes = processNodes;
 				
 				let hasResampler = false;
-				processNodes.forEach(function(node){
-					if (!node.moduleType || node.moduleType == 1){
+				processNodes.forEach(function(node, i){
+					if (sourceHasWorkletSupport && (!node.moduleType || node.moduleType == 1)){
 						audioWorkletNodes.push(node);
 					}
 					if (node.moduleInfo && node.moduleInfo["resamplingMode"]) hasResampler = true;
@@ -386,7 +466,9 @@ if (!(typeof SepiaFW == "object")){
 						}
 						audioWorkletNodes[i-1].connect(destinationNode);
 					}else if (audioWorkletNodes.length == 1){
-						audioWorkletNodes[0].connect(destinationNode);		//TODO: what if there is no workletNode?
+						audioWorkletNodes[0].connect(destinationNode);		//TODO: what if there is no workletNode ...
+					}else if (processNodes[0].connect){
+						processNodes[0].connect(destinationNode);			//TODO: ... is this ok?
 					}
 					//signal
 					processNodes.forEach(function(node){
@@ -404,8 +486,9 @@ if (!(typeof SepiaFW == "object")){
 				Promise.resolve((controls.onBeforeStop || noop)())
 				.then(function(){
 					//disconnect and signal
-					processNodes.forEach(function(node){
-						if (!node.moduleType || node.moduleType == 1) node.disconnect();
+					processNodes.forEach(function(node, i){
+						//if (!node.moduleType || node.moduleType == 1) node.disconnect();		//TODO: should we do this check?
+						if (node.disconnect) node.disconnect();
 						if (node.sendToModule) node.sendToModule({ctrl: {action: "stop", options: {}}});	//TODO: add options from moduleOptions?
 					});
 					return mainAudioContext.suspend();
@@ -483,15 +566,15 @@ if (!(typeof SepiaFW == "object")){
 				//continue with source handler
 				sourceHandler(thisProcessNode, {
 					onBeforeStart: options.customSource.beforeStart,
-					onAfterStart: options.customSource.start,
-					onBeforeStop: options.customSource.stop,
+					onAfterStart: options.customSource.start || options.customSource.afterStart,
+					onBeforeStop: options.customSource.stop || options.customSource.beforeStop,
 					onAfterStop: options.customSource.afterStop,
 					onBeforeRelease: options.customSource.beforeRelease,
-					onAfterRelease: options.customSource.release
+					onAfterRelease: options.customSource.release || options.customSource.afterRelease
 				},{
 					type: (options.customSource.type || "custom"),		//TODO: add more?
-					hasWorkletSupport: (options.customSource.type.hasWorkletSupport != undefined)? 
-						options.customSource.type.hasWorkletSupport : true
+					hasWorkletSupport: (options.customSource.hasWorkletSupport != undefined)? 
+						options.customSource.hasWorkletSupport : true
 				});
 				
 			}).catch(function(err){
@@ -833,7 +916,7 @@ if (!(typeof SepiaFW == "object")){
 	
 	//Legacy script processor node
 	WebAudio.createLegacyMicrophoneScriptProcessor = function(options){
-		if (!options) options = {};		//e.g. 'destinationNode' and 'targetSampleRate' (see 'getMicrophone' for more)
+		if (!options) options = {};		//e.g. 'destinationNode', 'targetSampleRate' and 'bufferSize' (see 'getMicrophone' for more)
 		return WebAudio.getMicrophone(options, undefined).then(function(res){
 			//get context
 			var source = res.source;
@@ -846,33 +929,44 @@ if (!(typeof SepiaFW == "object")){
 			//var targetSampleRate = options.targetSampleRate;
 			
 			var processNode = audioContext.createScriptProcessor(bufferSize, channels, channels);	//bufferSize, numberOfInputChannels, numberOfOutputChannels
+			
 			source.connect(processNode);
+			
+			var customSource = {
+				node: processNode,
+				type: "scriptProcessor",
+				hasWorkletSupport: false, 	//does not fit into audio processing thread (normal worklets)
+				//TODO: ?!?
+				start: function(){},
+				stop: function(){},
+				release: function(){}
+			}
 
-			if (options.onmessage){
+			if (options.onaudioprocess){
+				//this is the classic script processor callback
+				processNode.onaudioprocess = options.onaudioprocess;
+				//NOTE: we don't assign 'onmessage' here to make sure the module processor throws an error ... because it never gets called
+			}else{
 				//this resembles the module interface
-				processNode.onaudioprocess = function(e){
+				function convertEvent(e){
 					if (e && e.inputBuffer){
-						var samples = e.inputBuffer.getChannelData(0);	//TODO: only MONO
-						options.onmessage({
-							samples: [samples],
-							sampleRate: sampleRate,
-							channels: channels
+						var samples = [e.inputBuffer.getChannelData(0)];	//TODO: only MONO
+						processNode.onmessage({
+							data: {
+								samples: samples,
+								sampleRate: sampleRate,
+								channels: channels,
+								//isLast: false,
+								type: samples[0].constructor.name
+							}
 						});		
 					}
 				}
-			}else if (options.onaudioprocess){
-				//this is the classic script processor callback
-				processNode.onaudioprocess = options.onaudioprocess;
+				processNode.onaudioprocess = function(e){ convertEvent(e); };
+				processNode.onmessage = options.onmessage || function(e){};
 			}
 			
-			return {
-				node: processNode,
-				start: function(){},
-				stop: function(){},
-				release: function(){},		//TODO: ?!?
-				type: "mic-processor-switch",
-				hasWorkletSupport: false 	//does not fit into audio processing thread (normal worklets)
-			};
+			return customSource;
 		});
 	}
 	

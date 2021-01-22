@@ -12,6 +12,9 @@ onmessage = function(e) {
 			case "process":
 				process(e.data.ctrl.data);
 				break;
+			case "handle":
+				handleEvent(e.data.ctrl.data);	//e.g.: this worker sends gate events
+				break;
 			case "start":
 				start(e.data.ctrl.options);
 				break;
@@ -94,6 +97,7 @@ function getBuffer(start, end){
 	//TODO: use start, end
 	var res = buildBuffer(start, end);
 	postMessage({
+		moduleResponse: true,		//on-demand response type
 		output: {
 			buffer: res.buffer
 		}
@@ -105,6 +109,7 @@ function getWave(start, end){
 	var view = encodeWAV(res.buffer, inputSampleRate, channelCount, res.isFloat32);
 
 	postMessage({
+		moduleResponse: true,
 		output: {
 			wav: view,
 			sampleRate: inputSampleRate,
@@ -113,9 +118,33 @@ function getWave(start, end){
 		}
 	});
 }
+function encodeInterface(e){
+	var format = e.format;
+	if (format == "wave"){
+		var samples = e.data.samples[0];		//TODO: MONO only or interleaved stereo in channel 1
+		var view = encodeWAV(samples, e.data.sampleRate, e.data.channels, e.data.isFloat32);
+		postMessage({
+			moduleResponse: true,
+			encoderResult: {
+				wav: view,
+				sampleRate: inputSampleRate,
+				channels: channelCount
+			}
+		});
+	}else{
+		postMessage({
+			moduleResponse: true,
+			encoderResult: {}, 
+			error: "format not supported"
+		});
+	}
+}
 
 function gateControl(open){
-	var msg = {gate: {}};
+	var msg = {
+		moduleEvent: true,		//use 'moduleEvent' to distinguish from normal processing result
+		gate: {}
+	};
 	if (open){
 		//TODO: we should reset some stuff here, for now:
 		if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
@@ -200,6 +229,10 @@ function process(data){
 			_lookbackRingBuffer.push(data.samples);
 		}
 	}
+}
+
+function handleEvent(data){
+	//TODO: anything to do?
 }
 
 function start(options){
@@ -310,21 +343,5 @@ function wavFloatTo16BitPCM(view, offset, input) {
 function wavWriteString(view, offset, string) {
 	for (let i = 0; i < string.length; i++) {
 		view.setUint8(offset + i, string.charCodeAt(i));
-	}
-}
-function encodeInterface(e){
-	var format = e.format;
-	if (format == "wave"){
-		var samples = e.data.samples[0];		//TODO: MONO only or interleaved stereo in channel 1
-		var view = encodeWAV(samples, e.data.sampleRate, e.data.channels, e.data.isFloat32);
-		postMessage({
-			encoderResult: {
-				wav: view,
-				sampleRate: inputSampleRate,
-				channels: channelCount
-			}
-		});
-	}else{
-		postMessage({encoderResult: {}, error: "format not supported"});
 	}
 }

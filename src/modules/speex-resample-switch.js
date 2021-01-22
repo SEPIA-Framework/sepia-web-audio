@@ -170,6 +170,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 			if (that.resamplingMode){
 				var processed = that.resampler.processChunk(int16Buffer[0]);
 				that.port.postMessage({
+					moduleResponse: true,
 					resampleResult: {
 						//test: int16Buffer,		//DEBUG
 						samples: [processed],
@@ -180,6 +181,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 			}else{
 				that.port.postMessage({
 					error: "No resampling required. Skipped process!",
+					moduleResponse: true,
 					resampleResult: {}
 				});
 			}
@@ -203,6 +205,12 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 					case "release":
 					case "close":
 						release(e.data.ctrl.options);
+						break;
+					case "process":
+						//customProcess(e.data.ctrl.data);
+						break;
+					case "handle":
+						//handleEvent(e.data.ctrl.data);
 						break;
 					default:
 						console.error("Unknown control message:", e.data);

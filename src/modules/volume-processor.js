@@ -22,7 +22,7 @@ class VolumeProcessor extends AudioWorkletProcessor {
 		//ready
 		function ready(){
 			that.port.postMessage({
-				moduleState: 1,		//1=ready
+				moduleState: 1,		//1=ready, 2=changed
 				moduleInfo: {
 					sourceSamplerate: that.sourceSamplerate,
 					fps: that.fps,
@@ -74,6 +74,12 @@ class VolumeProcessor extends AudioWorkletProcessor {
 					case "close":
 						release(e.data.ctrl.options);
 						break;
+					case "process":
+						//customProcess(e.data.ctrl.data);
+						break;
+					case "handle":
+						//handleEvent(e.data.ctrl.data);
+						break;
 					default:
 						console.error("Unknown control message:", e.data);
 						break;
@@ -85,7 +91,10 @@ class VolumeProcessor extends AudioWorkletProcessor {
 					that.gain = e.data.gain.set;
 					reset();
 					that.port.postMessage({
-						gain: that.gain
+						moduleState: 2,		//2=changed
+						moduleInfo: {
+							gain: that.gain
+						}
 					});
 				}
 			}
@@ -94,8 +103,11 @@ class VolumeProcessor extends AudioWorkletProcessor {
 					that.fps = e.data.fps.set;
 					reset();
 					that.port.postMessage({
-						fps: that.fps,
-						binSize: that._binSize
+						moduleState: 2,		//2=changed
+						moduleInfo: {
+							fps: that.fps,
+							binSize: that._binSize
+						}
 					});
 				}
 			}

@@ -12,6 +12,9 @@ onmessage = function(e) {
 			case "process":
 				process(e.data.ctrl.data);
 				break;
+			case "handle":
+				handleEvent(e.data.ctrl.data);
+				break;
 			case "start":
 				start(e.data.ctrl.options);
 				break;
@@ -38,7 +41,9 @@ function constructWorker(options) {
     exampleInputBuffer = [];
 	
 	postMessage({
-		moduleState: 1,
+		//Default message type is "processing result", but it can be 'moduleState', 'moduleEvent' and 'moduleResponse' ("on-demand" requests) as well
+		//NOTE: only default processing (no tag) and 'moduleEvent' will be forwarded automatically
+		moduleState: 1,		//1=ready, 2=changed - for "on-demand" requests outside of normal processing sequence use 'moduleResponse: true'
 		moduleInfo: {
 			hello: "world"
 		}
@@ -50,6 +55,9 @@ function process(data) {
     //TODO: process data
 	
 	//postMessage(result);
+}
+function handleEvent(data){
+	//data that should not be processed but might trigger an event
 }
 
 function start(options) {

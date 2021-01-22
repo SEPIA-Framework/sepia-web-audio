@@ -108,6 +108,12 @@ class BufferProcessor extends AudioWorkletProcessor {
 					case "close":
 						release(e.data.ctrl.options);
 						break;
+					case "process":
+						//customProcess(e.data.ctrl.data);
+						break;
+					case "handle":
+						//handleEvent(e.data.ctrl.data);
+						break;
 					default:
 						console.error("Unknown control message:", e.data);
 						break;

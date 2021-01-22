@@ -21,7 +21,9 @@ class ExampleProcessor extends AudioWorkletProcessor {
 			
 			//... then send ready message
 			that.port.postMessage({
-				moduleState: 1,		//1=ready
+				//Default message type is "processing result", but it can be 'moduleState', 'moduleEvent' and 'moduleResponse' ("on-demand" requests) as well
+				//NOTE: only default processing (no tag) and 'moduleEvent' will be forwarded automatically
+				moduleState: 1,		//1=ready, 2=changed
 				moduleInfo: {
 					sourceSamplerate: that.sourceSamplerate,
 					targetSamplerate: that.targetSamplerate,
@@ -69,6 +71,12 @@ class ExampleProcessor extends AudioWorkletProcessor {
 					case "release":
 					case "close":
 						release(e.data.ctrl.options);
+						break;
+					case "process":
+						//customProcess(e.data.ctrl.data);		//custom processing? (better use workers here)
+						break;
+					case "handle":
+						//handleEvent(e.data.ctrl.data);		//custom events that could trigger specific actions
 						break;
 					default:
 						console.error("Unknown control message:", e.data);

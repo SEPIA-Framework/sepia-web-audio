@@ -155,7 +155,7 @@
 			<option value="whiteNoise">White-Noise Generator</option>
 			<option value="file1">File Stream 1</option>
 			<option value="file2">File Stream 2</option>
-			<option value="legacySpMic">Legacy ScriptProcessor Mic</option>
+			<option value="legacySpMic">Legacy Script-Processor Mic</option>
 		</select>
 		<div id="micOptions" class="contorlGroup">
 			<label><b>Mic Options</b></label>
@@ -284,6 +284,7 @@
 
 	var rec;
 	var targetSampleRate = +targetSampleRateSelector.value;		//e.g. 16000
+	var isLegacyScriptProcessor;
 	
 	//set correct modules folder
 	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
@@ -308,8 +309,10 @@
 			//customSourceNode: legacy script processor (with mic source)
 			try {
 				customSource = await SepiaFW.webAudio.createLegacyMicrophoneScriptProcessor({
-					targetSampleRate: targetSampleRate
+					targetSampleRate: targetSampleRate,
+					bufferSize: resamplerBufferSize
 				});
+				isLegacyScriptProcessor = true;
 			}catch (err){
 				onProcessorInitError(err);
 				return;
@@ -390,7 +393,7 @@
 		}
 		if (doUseResampler){
 			activeModules.push(resampler);
-		}else{
+		}else if (!isLegacyScriptProcessor){
 			activeModules.push(bufferSwitch);
 		}
 		if (doUseWaveEncoder){
