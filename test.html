@@ -353,6 +353,24 @@
 				}
 			}
 		};
+		var resamplerWorker = {
+			name: 'speex-resample-worker',
+			type: 'worker',
+			settings: {
+				onmessage: testBuffer,
+				sendToModules: (doUseWaveEncoder? [2] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: speex-resample-switch, 3: wave-encoder
+				options: {
+					setup: {
+						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
+						targetSampleRate: resamplerSampleRate, 	//16000,
+						resampleQuality: resamplerQuality, 		//7,
+						bufferSize: resamplerBufferSize, 		//512,		//TODO: set correct value (or replace with ratio?)
+						calculateRmsVolume: true,
+						gain: volGain		//TODO: keep?
+					}
+				}
+			}
+		};
 		var bufferSwitch = {
 			name: 'buffer-switch',
 			settings: {
@@ -391,8 +409,10 @@
 		if (doUseVolumeProcessor){
 			activeModules.push(volumeProcessor);
 		}
-		if (doUseResampler){
+		if (doUseResampler && !isLegacyScriptProcessor){
 			activeModules.push(resampler);
+		}else if (doUseResampler && isLegacyScriptProcessor){
+			activeModules.push(resamplerWorker);
 		}else if (!isLegacyScriptProcessor){
 			activeModules.push(bufferSwitch);
 		}
@@ -526,13 +546,13 @@
 	//var volSmooth = 0.8;	//0=none, 1=max
 	function setVolumeGain(val){
 		volGain = val;
-		if (volumeProcessor.handle){
+		if (window.volumeProcessor && volumeProcessor.handle){
 			volumeProcessor.handle.sendToModule({gain: {set: val}});
 		}
 	}
 	function setVolumeProcFps(val){
 		volProcFps = val;
-		if (volumeProcessor.handle){
+		if (window.volumeProcessor && volumeProcessor.handle){
 			volumeProcessor.handle.sendToModule({fps: {set: val}});
 		}
 	}

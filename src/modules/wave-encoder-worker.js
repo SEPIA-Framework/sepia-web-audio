@@ -220,7 +220,7 @@ function process(data){
 			//max length
 			if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
 				gateControl(false);
-				//TODO: after this has triggered the nex record sounds distorted???
+				//TODO: after this has triggered the next record sounds distorted???
 			}
 			if (!lookbackBufferNeedsReset) lookbackBufferNeedsReset = true;
 			
@@ -327,10 +327,7 @@ function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 	if (convertFromFloat32){
 		wavFloatTo16BitPCM(view, 44, samples);
 	}else{
-		let offset = 44;
-		for (let i = 0; i < sampleSize; i++, offset += 2) {
-			view.setInt16(offset, samples[i], true);
-		}
+		wavWrite16BitPCM(view, 44, samples);
 	}
 	return view;
 }
@@ -338,6 +335,11 @@ function wavFloatTo16BitPCM(view, offset, input) {
 	for (let i = 0; i < input.length; i++, offset += 2) {
 		let s = Math.max(-1, Math.min(1, input[i]));
 		view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+	}
+}
+function wavWrite16BitPCM(view, offset, input) {
+	for (let i = 0; i < input.length; i++, offset += 2) {
+		view.setInt16(offset, input[i], true);
 	}
 }
 function wavWriteString(view, offset, string) {
