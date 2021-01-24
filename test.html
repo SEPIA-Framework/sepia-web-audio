@@ -99,6 +99,10 @@
 		border: 1px solid #000;
 		overflow: auto;
 	}
+	.slidecontainer {
+		display: flex;
+		align-items: center;
+	}
 	#volumeMeterNodeOutput {
 		flex: 1 1 auto;
 		min-width: 128px;
@@ -177,8 +181,11 @@
 	<div id="resamplerControls" class="contorlGroup">
 		<label><b>Resampler (Speex WASM)</b></label>
 		<label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000">
-		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512">
+		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"><div style="flex: 1 0 100%;"></div>
 		<label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)">
+		<div id="resamplerGainBox" class="slidecontainer" style="display: none;">
+			<label>Gain:</label><input id="resamplerGain" type="range" min="1" max="50" step="1" value="1" class="slider"><input type="number" id="resamplerGainShow" class="small">
+		</div>
 	</div>
 	<div id="basicBufferControls" class="contorlGroup" style="display:none;">
 		<label><b>Basic Buffer</b></label>
@@ -227,6 +234,11 @@
 		var info = (typeof data == "object")? (data.name && data.message? (data.name + " - " + data.message) : JSON.stringify(data)) : data;
 		logElement.textContent += "\n" + (new Date().toLocaleTimeString()) + " - " + (msg + " - " + info);
 		logElement.scrollTo(0, logElement.scrollHeight);
+	}
+	function vibrate(pattern){
+		if (typeof window.navigator.vibrate == "function"){
+			window.navigator.vibrate(pattern);
+		}
 	}
 	
 	//callbacks:
@@ -285,6 +297,7 @@
 	var rec;
 	var targetSampleRate = +targetSampleRateSelector.value;		//e.g. 16000
 	var isLegacyScriptProcessor;
+	var scriptProcessorBufferSize = 512;
 	
 	//set correct modules folder
 	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
@@ -310,7 +323,7 @@
 			try {
 				customSource = await SepiaFW.webAudio.createLegacyMicrophoneScriptProcessor({
 					targetSampleRate: targetSampleRate,
-					bufferSize: resamplerBufferSize
+					bufferSize: scriptProcessorBufferSize
 				});
 				isLegacyScriptProcessor = true;
 			}catch (err){
@@ -361,12 +374,12 @@
 				sendToModules: (doUseWaveEncoder? [2] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: speex-resample-switch, 3: wave-encoder
 				options: {
 					setup: {
-						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
+						inputSampleSize: scriptProcessorBufferSize,	//output bufferSize of previous module
 						targetSampleRate: resamplerSampleRate, 	//16000,
 						resampleQuality: resamplerQuality, 		//7,
 						bufferSize: resamplerBufferSize, 		//512,		//TODO: set correct value (or replace with ratio?)
 						calculateRmsVolume: true,
-						gain: volGain		//TODO: keep?
+						gain: +resamplerGain.value		//TODO: keep?
 					}
 				}
 			}
@@ -448,6 +461,7 @@
 	function startRecording(btn){
 		if (rec){
 			rec.start();
+			vibrate([200]);
 		}
 	}
 	
@@ -456,6 +470,7 @@
 			rec.stop();
 			//UI specific:
 			setVolumeBar({volume: 0.0});
+			vibrate([200, 200]);
 		}
 	}
 	
@@ -513,6 +528,15 @@
 			document.getElementById("micOptions").style.display = "";
 		}else{
 			document.getElementById("micOptions").style.display = "none";
+		}
+		if (ele.value == "legacySpMic"){
+			document.getElementById("resamplerGainBox").style.display = "";
+			document.getElementById("useVolumeProcessor").checked = false;
+			useVolumeProcessor(false);
+		}else{
+			document.getElementById("resamplerGainBox").style.display = "none";
+			document.getElementById("useVolumeProcessor").checked = true;
+			useVolumeProcessor(true);
 		}
 	}
 	inputSourceChanged();
@@ -574,6 +598,11 @@
 	var resamplerSampleRate = +document.getElementById("resamplerSampleRate").value; 	//e.g. 16000;
 	var resamplerBufferSize = +document.getElementById("resamplerBufferSize").value; 	//e.g. 512;
 	var resamplerQuality = +document.getElementById("resampleQuality").value; 			//e.g. 7;
+	var resamplerGain = document.getElementById("resamplerGain");
+	var resamplerGainShow = document.getElementById("resamplerGainShow");
+	resamplerGainShow.value = resamplerGain.value;
+	resamplerGain.oninput = function(){ resamplerGainShow.value = resamplerGain.value; };
+	resamplerGainShow.oninput = function(){ resamplerGain.value = resamplerGainShow.value; };
 	function setResamplerSampleRate(inputEle){
 		resamplerSampleRate = +inputEle.value;
 	}

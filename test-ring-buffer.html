@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Test Ring-Buffer</title>
+	
+	<script type="text/javascript" src="src/resources/ring-buffer.js"></script>
+	
+	<style>
+	* {
+		font-family: sans-serif;
+	}
+	</style>
+</head>
+<body>
+<div id="output">
+</div>
+<script type='text/javascript'>
+	var out = document.getElementById("output");
+	function consoleLog(){
+		out.innerHTML += Array.prototype.join.call(arguments) + "<br>";
+		console.log(...arguments);
+	}
+	function consoleError(){
+		out.innerHTML += "<b><span style='color: red;'>" + Array.prototype.join.call(arguments) + "</span></b><br>";
+		console.error(...arguments);
+	}
+	
+	var rb = new RingBuffer(18+18, 1, "Int16");
+	var res = [new Int16Array(18)];
+	var i=1;
+	var track = [];
+	var N=6;
+	
+	function sequence(steps){
+		for (let n=1; n<=steps; n++){
+			let N = n==3? 5 : 6;
+			let a = [];
+			for (let j=1; j<=N; j++){
+				a.push(i);
+				track.push(i);
+				i++;
+			}
+			rb.push([new Int16Array(a)]);
+			consoleLog("added: ", a.toString(), "--- framesAvailable: ", rb.framesAvailable);
+		}
+		rb.pull(res);
+		var shouldbe = track.slice(0, 18);
+		var is = res[0].toString();
+		consoleLog("should be:", shouldbe.toString());
+		consoleLog("is:", is);
+		consoleLog("rest framesAvailable", rb.framesAvailable);
+		track = track.slice(18);
+		consoleLog("rest should be:", track.toString());
+		if (shouldbe == is){
+			consoleLog("OK");
+		}else{
+			consoleError("NOT OK");
+		}
+	}
+	
+	consoleLog("-WRITE INDEX TEST-");
+	
+	consoleLog("-1-");
+	sequence(4);
+	consoleLog("-2-");
+	sequence(3);
+	consoleLog("-3-");
+	sequence(3);
+	consoleLog("-REST-");
+	var rest = [new Int16Array(rb.framesAvailable)];
+	rb.pull(rest);
+	consoleLog("should be:", track.toString());
+	consoleLog("rest", rest[0].toString(), "framesAvailable", rb.framesAvailable);
+	
+	consoleLog("");
+	consoleLog("-READ INDEX TEST-");
+	
+	rb = new RingBuffer(18+18, 1, "Int16");
+	res = [new Int16Array(30)];
+	track = [];
+	consoleLog("-1-");
+	for (let n=1; n<=36; n++){
+		track.push(n);
+	}
+	consoleLog("added: [1...36]");
+	rb.push([new Int16Array(track)]);
+	consoleLog("framesAvailable: ", rb.framesAvailable);
+	consoleLog("pull 1...30");
+	rb.pull(res);
+	var shouldbe = track.slice(0, 30);
+	var is = res[0].toString();
+	track = track.slice(30);
+	consoleLog("should be:", shouldbe.toString());
+	consoleLog("is:", is);
+	if (shouldbe == is){
+		consoleLog("OK");
+	}else{
+		consoleError("NOT OK");
+	}
+	consoleLog("framesAvailable: ", rb.framesAvailable);
+	consoleLog("-2-");
+	consoleLog("added: [1...6]");
+	var a = [];
+	for (let n=1; n<=6; n++){
+		a.push(n);
+		track.push(n);
+	}
+	rb.push([new Int16Array(a)]);
+	consoleLog("framesAvailable: ", rb.framesAvailable);
+	consoleLog("pull 9");
+	res = [new Int16Array(9)];
+	rb.pull(res);
+	var shouldbe = track.slice(0, 9);
+	var is = res[0].toString();
+	track = track.slice(9);
+	consoleLog("should be:", shouldbe.toString());
+	consoleLog("is:", is);
+	if (shouldbe == is){
+		consoleLog("OK");
+	}else{
+		consoleError("NOT OK");
+	}
+	consoleLog("framesAvailable: ", rb.framesAvailable);
+	consoleLog("-3-");
+	consoleLog("pull rest");
+	res = [new Int16Array(rb.framesAvailable)];
+	rb.pull(res);
+	var shouldbe = track;
+	var is = res[0].toString();
+	consoleLog("should be:", shouldbe.toString());
+	consoleLog("is:", is);
+	if (shouldbe == is){
+		consoleLog("OK");
+	}else{
+		consoleError("NOT OK");
+	}
+</script>
+</body>
+</html>
