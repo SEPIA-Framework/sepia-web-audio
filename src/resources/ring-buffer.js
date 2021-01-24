@@ -64,7 +64,7 @@ class RingBuffer {
 
     this._writeIndex += sourceLength;
     if (this._writeIndex >= this._length) {
-      this._writeIndex = 0;
+      this._writeIndex = this._writeIndex - this._length;
     }
 
     // For excessive frames, the buffer will be overwritten.
@@ -100,7 +100,7 @@ class RingBuffer {
 
     this._readIndex += destinationLength;
     if (this._readIndex >= this._length) {
-      this._readIndex = 0;
+      this._readIndex = this._readIndex - this._length;
     }
 
     this._framesAvailable -= destinationLength;
@@ -109,7 +109,8 @@ class RingBuffer {
     }
   }
 };
-
+/*
 export {
   RingBuffer
 };
+*/
