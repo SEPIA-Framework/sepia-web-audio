@@ -32,7 +32,7 @@ if (!(typeof SepiaFW == "object")){
 
 	//Media constraints
 	WebAudio.getSupportedAudioConstraints = function(){
-		var sc = navigator.mediaDevices.getSupportedConstraints();
+		var sc = navigator.mediaDevices.getSupportedConstraints();		//TODO: can fail due to non-SSL (secure context)
 		var c = {}, owc = WebAudio.overwriteSupportedAudioConstraints;
 		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : undefined;
 		if (sc.channelCount) c.channelCount = (owc.channelCount != undefined)? owc.channelCount : 1;
@@ -312,13 +312,19 @@ if (!(typeof SepiaFW == "object")){
 					};
 					function onError(err){
 						//TODO: do something with 'completeInitCondition("module-" + i)' or abort whole processor?
+						var errorMessage;
+						if (err.message && err.message.indexOf("Uncaught {") == 0){
+							err.preventDefault();
+							errorMessage = JSON.parse(err.message.replace(/^Uncaught /, ""));
+						}
 						onProcessorError({
 							name: "AudioModuleProcessorException",
-							message: ("Error in module: " + err.target.moduleName + " - Check console for details.")
+							message: ("Error in module: " + err.target.moduleName + " - " + (errorMessage && errorMessage.message? errorMessage.message : "Check console for details.")),
+							info: errorMessage
 						});
 						if (isInitPending && !isInitialized){
 							completeInitCondition("module-" + i);
-							initializerError({message: "Error during setup of module: " + thisProcessNode.moduleName, name: "ProcessorInitError"});
+							initializerError({message: "Error during setup of module: " + thisProcessNode.moduleName, name: "ProcessorInitError", info: errorMessage});
 						}
 					}
 

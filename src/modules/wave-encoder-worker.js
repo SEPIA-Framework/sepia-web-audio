@@ -209,7 +209,7 @@ function process(data){
 			if (data.sampleRate != inputSampleRate){
 				var msg = "Sample-rate mismatch! Should be '" + inputSampleRate + "' is '" + data.sampleRate + "'";
 				console.error("Audio Worker sample-rate exception - Msg.: " + msg);
-				throw new SampleRateException(msg);
+				throw new SampleRateException(msg);		//TODO: this probably needs to be a string to show up in worker.onerror properly :-/
 				return;
 			}
 			//check: inputSampleRate, inputSampleSize, channelCount

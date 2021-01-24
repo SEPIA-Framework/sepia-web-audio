@@ -47,9 +47,11 @@ let emitterBufferSize;
 let channelCount;
 let calculateRmsVolume;
 let gain;
+let _hasGain;
 
 let _bytesPerSample = 2;	//for buffer (aka Xint8 Array) length is in bytes (8bit), so *2 to get 16bit length;
 let resamplingMode;			//resampling - modes 0: no change, -1: downsampling, 1: upsampling
+let resampleRatio;
 let resampler;
 
 let _outputRingBuffer;
@@ -62,7 +64,13 @@ let _emitterSamples;
 
 function init(){
 	//RingBuffers - alloc. space for emitter
-	_outputRingBuffer = new RingBuffer(emitterBufferSize * 2, channelCount, "Int16");		//TODO: check size again
+	var expectedSizeAfterResampling = Math.ceil(inputSampleSize * resampleRatio);
+	if (expectedSizeAfterResampling > emitterBufferSize){
+		//TODO: if we don't use a string this shows up as "Uncaught [object ...]" in worker.onerror ?! :-/
+		throw JSON.stringify(new BufferSizeException("Output buffer has to be bigger than (resampleRatio*inputSampleSize)! Currently: " + expectedSizeAfterResampling + " > " + emitterBufferSize));
+	}
+	var ringBufferSize = expectedSizeAfterResampling + emitterBufferSize;			//this should be a safe size
+	_outputRingBuffer = new RingBuffer(ringBufferSize, channelCount, "Int16");		//TODO: check size again
 
 	//Input and output (for each channel) - TODO: set size, one for each channel
 	_newInputBuffer = [new Int16Array(inputSampleSize)];		
@@ -71,6 +79,7 @@ function init(){
 	_isFirstValidProcess = true;
 	_emitterSqrSum = 0;
 	_emitterSamples = 0;
+	_hasGain = (gain < 1 || gain > 1);
 }
 function ready(skipResampler){
 	if (!skipResampler){
@@ -99,12 +108,13 @@ function constructWorker(options) {
 	inputSampleSize = options.setup.inputSampleSize || 512;
 	targetSampleRate = options.setup.targetSampleRate || options.setup.ctxInfo.targetSampleRate || 16000;
 	resampleQuality = (options.setup.resampleQuality != undefined)? options.setup.resampleQuality : 7;
-	emitterBufferSize = options.setup.bufferSize || inputSampleSize;		//TODO: set correct value (or replace with x * ratio?)
+	emitterBufferSize = options.setup.bufferSize || inputSampleSize;
 	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
 	calculateRmsVolume = (options.setup.calculateRmsVolume != undefined)? options.setup.calculateRmsVolume : true;
 	gain = options.setup.gain || 1.0;		//TODO: keep?
 	
 	resamplingMode = (targetSampleRate < sourceSamplerate? -1 : (targetSampleRate > sourceSamplerate? 1 : 0));
+	resampleRatio = targetSampleRate/sourceSamplerate;
 	init();
 	
 	//prepare
@@ -146,17 +156,19 @@ function process(data) {
 		
 		if (_isFirstValidProcess){
 			_isFirstValidProcess = false;
-			//check inputSampleSize - TODO: this requires constant size ?
+			//check inputSampleSize - TODO: this requires constant size? adapt to first value?
 			if (thisInputSampleSize != inputSampleSize){
 				let msg = "Sample size is: " + thisInputSampleSize + ", expected: " + inputSampleSize + ". Need code adjustments!";
 				console.error("SpeexResampler sample size exception - Msg.: " + msg);
-				throw new SampleSizeException(msg);
+				throw new SampleSizeException(msg);		//TODO: same as above, this probably needs to be a string to show up in worker.onerror properly :-/
 			}
 		}
 		
 		//transfer input to 16bit signed, interleaved (channels) PCM output - TODO: ONLY MONO so far!
 		let sqrSum = 0;
 		for (let i = 0; i < thisInputSampleSize; ++i){
+			//gain
+			if (_hasGain) input[0][i] = input[0][i] * gain;
 			
 			//float to 16Bit interleaved PCM
 			floatTo16BitInterleavedPCM(input, _newInputBuffer, i);
@@ -238,8 +250,12 @@ function SampleSizeException(message){
 	this.message = message;
 	this.name = "SampleSizeException";
 }
+function BufferSizeException(message){
+	this.message = message;
+	this.name = "BufferSizeException";
+}
 
 function floatTo16BitInterleavedPCM(inFloat32, outInt16, i){
-	let sampleVal = Math.max(-1, Math.min(1, inFloat32[0][i]*gain));		//we need -1 to 1 - If this is the first processor we could skip clipping
+	let sampleVal = Math.max(-1, Math.min(1, inFloat32[0][i]));		//we need -1 to 1 - If this is the first processor we could skip clipping
 	outInt16[0][i] = sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7FFF;
 }
