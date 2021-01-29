@@ -461,7 +461,7 @@
 	function startRecording(btn){
 		if (rec){
 			rec.start();
-			vibrate([200]);
+			vibrate([42]);
 		}
 	}
 	
@@ -470,7 +470,7 @@
 			rec.stop();
 			//UI specific:
 			setVolumeBar({volume: 0.0});
-			vibrate([200, 200]);
+			vibrate([42,30,42]);
 		}
 	}
 	
