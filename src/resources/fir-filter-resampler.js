@@ -1,3 +1,6 @@
+//Downsampling + FIR (finite impulse response) low-pass filter
+//Inspired by this discussion: http://dsp.stackexchange.com/a/37475/26392
+//Written for SEPIA Web Audio Processor module
 var FirFilterResampler = function(){
 	var Resampler = {};
 	
