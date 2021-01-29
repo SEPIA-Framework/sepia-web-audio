@@ -59,6 +59,7 @@ onmessage = function(e) {
 let inputSampleRate;
 let inputSampleSize;
 let channelCount;
+let isFloat32Input;		//default false
 let encoderBitDepth = 16;
 let _bytesPerSample = encoderBitDepth/8;
 
@@ -80,7 +81,11 @@ function init(){
 	lookbackBufferNeedsReset = false;
 	if (lookbackBufferMs){
 		_lookbackBufferSize = Math.round((lookbackBufferMs/1000) * inputSampleRate);
-		_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, "Int16");	//TODO: test for Float32
+		if (isFloat32Input){
+			_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount);	//TODO: test for Float32
+		}else{
+			_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, "Int16");
+		}
 	}else{
 		_lookbackBufferSize = 0;
 	}
@@ -170,6 +175,7 @@ function constructWorker(options){
 	inputSampleSize = options.setup.inputSampleSize || 512;
 	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
 	lookbackBufferMs = (options.setup.lookbackBufferMs != undefined)? options.setup.lookbackBufferMs : 0;
+	isFloat32Input = (options.setup.isFloat32 != undefined)? options.setup.isFloat32 : false;
 	
 	if (options.setup.recordBufferLimitMs != undefined){
 		recordBufferMaxN = (inputSampleRate * options.setup.recordBufferLimitMs/1000) / inputSampleSize;
@@ -206,13 +212,22 @@ function process(data){
 		if (_isFirstValidProcess){
 			_isFirstValidProcess = false;
 			console.error("data info", data);		//DEBUG
+			//check: inputSampleRate, inputSampleSize, channelCount, float32
 			if (data.sampleRate != inputSampleRate){
 				var msg = "Sample-rate mismatch! Should be '" + inputSampleRate + "' is '" + data.sampleRate + "'";
 				console.error("Audio Worker sample-rate exception - Msg.: " + msg);
 				throw new SampleRateException(msg);		//TODO: this probably needs to be a string to show up in worker.onerror properly :-/
 				return;
 			}
-			//check: inputSampleRate, inputSampleSize, channelCount
+			var inputArrayType = data.samples[0].constructor.name;
+			var isFloat32 = (inputArrayType.indexOf("Float32") >= 0);
+			if (isFloat32 != isFloat32Input){
+				var msg = "Array type mismatch! Input samples are of type '" + inputArrayType + "' but expected: " + (isFloat32Input? "Float32" : "Int16");
+				console.error("Audio Worker type exception - Msg.: " + msg);
+				throw new ArrayTypeException(msg);		//TODO: this probably needs to be a string to show up in worker.onerror properly :-/
+				return;
+			}
+			//TODO: should we re-init. instead of fail?
 		}
 		if (gateIsOpen){
 			//TODO: this will always be one channel ONLY since the signal is interleaved
@@ -261,6 +276,10 @@ function release(options){
 function SampleRateException(message) {
 	this.message = message;
 	this.name = "SampleRateException";
+}
+function ArrayTypeException(message) {
+	this.message = message;
+	this.name = "ArrayTypeException";
 }
 
 function buildBuffer(start, end){
