@@ -1,4 +1,5 @@
 //imports
+importScripts('./shared/common.js');
 importScripts('./shared/ring-buffer.min.js');
 
 onmessage = function(e) {

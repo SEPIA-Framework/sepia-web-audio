@@ -1093,7 +1093,7 @@ if (!(typeof SepiaFW == "object")){
 			var offlineAudioContext = new OfflineAudioContext(channels, buffer.length, inputSampleRate);	//we just need this to setup the module
 			var moduleFolder = WebAudio.defaultProcessorOptions.moduleFolder.replace(/\/$/, "") + "/";
 			var moduleName = "speex-resample-switch";
-			offlineAudioContext.audioWorklet.addModule(moduleFolder + moduleName + ".js").then(function(){
+			offlineAudioContext.audioWorklet.addModule(moduleFolder + moduleName + ".js").then(function(){	//NOTE: if the folder is wrong this can fail with poor error message
 				var options = {
 					processorOptions: {
 						ctxInfo: {

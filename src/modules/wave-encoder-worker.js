@@ -36,20 +36,33 @@ onmessage = function(e) {
 	//custom interface
 	if (e.data.gate != undefined){
 		console.error("Message", e.data);			//DEBUG
-		gateControl(e.data.gate && e.data.gate == "open");
+		gateControl(e.data.gate && e.data.gate == "open", e.data.gateOptions);
 	}
 	if (e.data.request){
 		console.error("Message", e.data);			//DEBUG
-		switch (e.data.request.get){
-			case "buffer":
-				getBuffer(e.data.request.start, e.data.request.end);
-				break;
-			case "wave":
-				getWave(e.data.request.start, e.data.request.end);
-				break;
-			default:
-				console.log("Unknown request message:", e.data);
-				break;
+		if (e.data.request.get){
+			switch (e.data.request.get){
+				case "buffer":
+					getBuffer(e.data.request.start, e.data.request.end);
+					break;
+				case "wave":
+					getWave(e.data.request.start, e.data.request.end);
+					break;
+				default:
+					console.log("Unknown request message:", e.data);
+					break;
+			}
+		}else if (e.data.request.clear){
+			switch (e.data.request.clear){
+				case "buffer":
+					//TODO: clear buffer and release lookback lock
+					break;
+				default:
+					console.log("Unknown request message:", e.data);
+					break;
+			}
+		}else{
+			console.log("Unknown request message:", e.data);
 		}
 	}else if (e.data.encode && e.data.encode.data){
 		encodeInterface(e.data.encode);
@@ -145,7 +158,8 @@ function encodeInterface(e){
 	}
 }
 
-function gateControl(open){
+function gateControl(open, gateOptions){
+	if (!gateOptions) gateOptions = {}; 		//TODO: use e.g. for (lookbackBufferNeedsReset = false)
 	var msg = {
 		moduleEvent: true,		//use 'moduleEvent' to distinguish from normal processing result
 		gate: {}
@@ -197,6 +211,7 @@ function constructWorker(options){
 		moduleInfo: {
 			inputSampleRate: inputSampleRate,
 			inputSampleSize: inputSampleSize,
+			inputIsFloat32: isFloat32Input,
 			channelCount: channelCount,
 			lookbackBufferSizeKb: Math.ceil((_lookbackBufferSize * 2)/1024),	//1 sample = 2 bytes
 			lookbackLimitMs: lookbackBufferMs,
@@ -210,21 +225,21 @@ function process(data){
 	//TODO: check process values against constructor values (sampleSize etc.)
 	if (data && data.samples){
 		if (_isFirstValidProcess){
+			//console.error("data info", data);		//DEBUG
 			_isFirstValidProcess = false;
-			console.error("data info", data);		//DEBUG
 			//check: inputSampleRate, inputSampleSize, channelCount, float32
 			if (data.sampleRate != inputSampleRate){
 				var msg = "Sample-rate mismatch! Should be '" + inputSampleRate + "' is '" + data.sampleRate + "'";
 				console.error("Audio Worker sample-rate exception - Msg.: " + msg);
-				throw new SampleRateException(msg);		//TODO: this probably needs to be a string to show up in worker.onerror properly :-/
+				throw JSON.stringify(new SampleRateException(msg));			//NOTE: this needs to be a string to show up in worker.onerror properly :-/
 				return;
 			}
-			var inputArrayType = data.samples[0].constructor.name;
+			var inputArrayType = data.type || data.samples[0].constructor.name;
 			var isFloat32 = (inputArrayType.indexOf("Float32") >= 0);
 			if (isFloat32 != isFloat32Input){
 				var msg = "Array type mismatch! Input samples are of type '" + inputArrayType + "' but expected: " + (isFloat32Input? "Float32" : "Int16");
 				console.error("Audio Worker type exception - Msg.: " + msg);
-				throw new ArrayTypeException(msg);		//TODO: this probably needs to be a string to show up in worker.onerror properly :-/
+				throw JSON.stringify(new ArrayTypeException(msg));			//NOTE: this needs to be a string to show up in worker.onerror properly :-/
 				return;
 			}
 			//TODO: should we re-init. instead of fail?
@@ -295,6 +310,7 @@ function buildBuffer(start, end){
 		_lookbackRingBuffer.pull(lookbackSamples);
 	}
 	var dataLength = recordedBuffers.length * inputSampleSize + (lookbackSamples? lookbackSamples[0].length : 0);
+	//TODO: any chance to allocate 'collectBuffer' in advance and keep it? (max. rec + lookback maybe?)
 	var collectBuffer = isFloat32? new Float32Array(dataLength) : new Int16Array(dataLength); 	//TODO: this is usually too big because the last buffer is not full ...
 	var n = 0;
 	if (lookbackSamples){
@@ -316,6 +332,7 @@ function buildBuffer(start, end){
 		isFloat32: isFloat32
 	}
 	//TODO: we clear lookback buffer here ... so we should clear everything
+	lookbackBufferNeedsReset = false;
 }
 
 function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){

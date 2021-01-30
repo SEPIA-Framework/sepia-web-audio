@@ -1,4 +1,5 @@
 //imports
+importScripts('./shared/common.js');
 importScripts('./shared/ring-buffer.min.js');
 importScripts('./shared/speex-resampler-interface.min.js');
 importScripts('./shared/speex-resampler-wasm.js');
@@ -117,21 +118,26 @@ function constructWorker(options) {
 	resampleRatio = targetSampleRate/sourceSamplerate;
 	init();
 	
+	function onSpeexLog(msg){
+		console.error("SpeexModuleLog -", msg);			//DEBUG (use postMessage?)
+	}
+	//function onSpeexError(msg){}		//TODO: we could wrap the 'resampler.processChunk' function in try-catch and log the error here
+	
 	//prepare
 	if (resamplingMode){
 		if (!speexModule){
-			console.error("Init Speex");			//DEBUG
+			onSpeexLog("Init. Speex WASM module");
 			SpeexResampler.initPromise = Speex().then(function(s){
-				console.error("Speex ready");		//DEBUG
-				speexModule = s;
+				onSpeexLog("Speex WASM module ready");
+				speexModule = s;	//NOTE: used inside Speex
 				ready(false);
 			});
 		}else{
-			console.error("Speex already there");	//DEBUG
+			onSpeexLog("Speex WASM moduel already loaded");
 			ready(false);
 		}
 	}else{
-		console.error("Speex not needed");			//DEBUG
+		onSpeexLog("Speex WASM module not needed");
 		ready(true);
 	}
 }
@@ -202,7 +208,6 @@ function process(data) {
 			});
 		}
 	}
-	return true;
 }
 
 function handleEvent(data){
@@ -242,18 +247,10 @@ function release(options){
 	_newInputBuffer = null;
 	_newOutputBuffer = null;
 	resampler = null;
+	speexModule = null;
 }
 
 //--- helpers ---
-
-function SampleSizeException(message){
-	this.message = message;
-	this.name = "SampleSizeException";
-}
-function BufferSizeException(message){
-	this.message = message;
-	this.name = "BufferSizeException";
-}
 
 function floatTo16BitInterleavedPCM(inFloat32, outInt16, i){
 	let sampleVal = Math.max(-1, Math.min(1, inFloat32[0][i]));		//we need -1 to 1 - If this is the first processor we could skip clipping
