@@ -13,126 +13,17 @@
 
 	<script src="src/polyfills/audioworklet-polyfill.js"></script>
 	<script type="text/javascript" src="src/processor.js"></script>
+	<script>
+		//set correct modules folder
+		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+	</script>
 	
 	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
 	<script type="text/javascript" src="src/resources/opus-file-splitter.js"></script>
 	<script type="text/javascript" src="src/resources/fir-filter-resampler.js"></script>
 	
-	<style>
-	* {
-		box-sizing: border-box;
-	}
-	html, body {
-		font-family: sans-serif;
-		text-align: center;
-	}
-	#mainView > div {
-		margin: 16px 8px;
-	}
-	button {
-		display: inline-block;
-		margin: 8px;
-	}
-	label, input {
-		margin: 8px;
-	}
-	input.small {
-		width: 72px;
-	}
-	select {
-		min-height: 21px;
-	}
-	label + select,
-	label + input {
-		margin-left: 0;
-	}
-	.contorlGroup {
-		display: flex;
-		align-items: center;
-		align-content: center;
-		flex-wrap: wrap;
-	}
-	.contorlGroup.center {
-		justify-content: center;
-	}
-	#mainView {
-		display: inline-block;
-		width: 100%;
-		max-width: 1024px;
-		text-align: center;
-		padding: 16px; 
-		margin:0;
-	}
-    #status {
-		display: inline-block;
-		width: 90px;
-		height: 90px;
-		background: #aaa;
-		border-radius: 50%;
-		margin: 8px;
-    }
-	#status.ready {
-		background: #000;
-	}
-	#status.listening {
-		background: #ff3355;
-	}
-	#status.voiceactivity {
-		background: #16abc3;
-	}
-	#status.insequence {
-		background: #33ee88;
-	}
-	#logMessages {
-		max-height: 50vh;
-		white-space: pre;
-		text-align: left;
-		overflow: auto;
-		border: 1px solid currentColor;
-		padding: 16px;
-		overflow: auto;
-		font-size: 15px;
-	}
-	.chart {
-		margin: 30px 0;
-		height: 128px;
-		border: 1px solid #000;
-		overflow: auto;
-	}
-	.slidecontainer {
-		display: flex;
-		align-items: center;
-	}
-	#volumeMeterNodeOutput {
-		flex: 1 1 auto;
-		min-width: 128px;
-		border: 1px solid currentColor;
-		margin: 8px;
-	}
-	#volumeMeterNodeOutput > div {
-		margin: 0;
-		padding: 0;
-		height: 21px;
-		width: 0%;
-		background: #ff3355;
-	}
-	#waveEncoderGateState {
-		width: 18px;
-		height: 18px;
-		background: #eee;
-		border-radius: 9px;
-	}
-	#waveEncoderGateState.open {
-		background: #0f5;
-	}
-	#waveEncoderGateState.close {
-		background: #000;
-		border-radius: 0;
-	}
-	#micDeviceId {
-		max-width: 160px;
-	}
-	</style>
+	<link rel="stylesheet" type="text/css" href="tests.css">
+	<style></style>
 </head>
 <body>
 <div id="mainView">
@@ -208,18 +99,26 @@
 		<label>Control:</label><button onclick="startMediaRecorder();">Capture</button><button onclick="stopMediaRecorder();">Stop</button>
 		<label>Export:</label><button onclick="getRawDataFromMediaRecorder();">Show Decoded Data</button>
 	</div>
+	<div id="vadWorkerControls" class="contorlGroup">
+		<label><b>VAD</b></label>
+		<label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="960" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);">
+		<label>Mode:</label><input id="vadWorkerVadMode" class="small" value="3" placeholder="1-3 (3: agressive)" onchange="setVadWorkerVadMode(+this.value);">
+	</div>
 	<div class="contorlGroup">
 		<label><b>Switches:</b></label>
 		<label>Use volume-proc.:</label><input type="checkbox" id="useVolumeProcessor" checked onchange="useVolumeProcessor(this.checked);">
 		<label>Use resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);">
 		<label>Use wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);">
+		<label>Use VAD:</label><input type="checkbox" id="useVadWorker" checked onchange="useVadWorker(this.checked);">
 		<label>Plot 1:</label><input type="checkbox" id="usePlot1" checked onchange="usePlot(1, this);">
 		<label>Plot 2:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);">
+		<label>Plot 3:</label><input type="checkbox" id="usePlot3" checked onchange="usePlot(3, this);">
 	</div>
 	<div id="chart1" class="chart"></div>
 	<div id="chart2" class="chart"></div>
-	<!--<div id="chart3" class="chart"></div>-->
+	<div id="chart3" class="chart"></div>
 </div>
+<script type='text/javascript' src="test-commons.js"></script>
 <script type='text/javascript'>
 	var infoElement = document.getElementById('info');
 	var statusElement = document.getElementById('status');
@@ -229,17 +128,6 @@
 	};
 	var sourceSelector = document.getElementById("sourceTypeSelector");
 	var logElement = document.getElementById('logMessages');
-	
-	function showLogMessage(msg, data){
-		var info = (typeof data == "object")? (data.name && data.message? (data.name + " - " + data.message) : JSON.stringify(data)) : data;
-		logElement.textContent += "\n" + (new Date().toLocaleTimeString()) + " - " + (msg + " - " + info);
-		logElement.scrollTo(0, logElement.scrollHeight);
-	}
-	function vibrate(pattern){
-		if (typeof window.navigator.vibrate == "function"){
-			window.navigator.vibrate(pattern);
-		}
-	}
 	
 	//callbacks:
 	
@@ -299,9 +187,6 @@
 	var isLegacyScriptProcessor;
 	var scriptProcessorBufferSize = 512;
 	
-	//set correct modules folder
-	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
-	
 	async function createRecorder(btn){
 		//audio source
 		var useWhiteNoiseTest = false; //document.getElementById("useWhiteNoiseRecorder").checked;
@@ -349,12 +234,13 @@
 			}
 		};
 		window.volumeProcessor = volumeProcessor;
+		var volumeProcessorIndex;
 		
 		var resampler = {
 			name: 'speex-resample-switch', //'buffer-switch',
 			settings: {
 				onmessage: testBuffer,
-				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: speex-resample-switch, 3: wave-encoder
+				sendToModules: [],	//e.g. [waveEncoderIndex] - index as given to processor - 0: source, 1: module 1, ...
 				options: {
 					processorOptions: {
 						targetSampleRate: resamplerSampleRate, 	//16000,
@@ -371,7 +257,7 @@
 			type: 'worker',
 			settings: {
 				onmessage: testBuffer,
-				sendToModules: (doUseWaveEncoder? [2] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: speex-resample-switch, 3: wave-encoder
+				sendToModules: [],	//e.g. [waveEncoderIndex] - index as given to processor - 0: source, 1: module 1, ...
 				options: {
 					setup: {
 						inputSampleSize: scriptProcessorBufferSize,	//output bufferSize of previous module
@@ -388,15 +274,19 @@
 			name: 'buffer-switch',
 			settings: {
 				onmessage: testBuffer,
-				sendToModules: (doUseWaveEncoder? [3] : []),	//index as given to processor - 0: source, 1: volume-meter, 2: speex-resample-switch, 3: wave-encoder
+				sendToModules: [],	//e.g. [waveEncoderIndex] - index as given to processor - 0: source, 1: module 1, ...
 				options: {
 					processorOptions: {
 						bufferSize: resamplerBufferSize, 		//512,
 						passThroughMode: 1,		//0: none, 1: original (float32)
+						//TODO: add options for FIR resampler and float32toInt16 convert
 					}
 				}
 			}
 		};
+		var resamplerIndex;
+		var resamplerWorkerIndex;
+		var bufferSwitchIndex;
 		
 		var waveEncoder = {
 			name: 'wave-encoder',
@@ -406,7 +296,7 @@
 				onmessage: waveEncoderMessage,
 				options: {
 					setup: {
-						inputSampleRate: (doUseResampler? resamplerSampleRate : 0),	//output sampleRate of previous module, if undefined take targetSampleRate
+						inputSampleRate: (doUseResampler? resamplerSampleRate : 0),	//output sampleRate of previous module, if undefined take targetSampleRate or inputSampleRate
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
 						lookbackBufferMs: waveEncoderLookback,
 						//recordBufferLimitKb: 600,
@@ -416,21 +306,60 @@
 			}
 		};
 		window.waveEncoder = waveEncoder;
+		var waveEncoderIndex;
+		
+		var vadWorker = {
+			name: 'webrtc-vad-worker',
+			type: 'worker',
+			settings: {
+				onmessage: setVoiceActivity,
+				//sendToModules: (doUseWaveEncoder? [waveEncoderIndex] : []),
+				options: {
+					setup: {
+						inputSampleRate: (doUseResampler? resamplerSampleRate : 0),	//output sampleRate of previous module, if undefined take targetSampleRate or inputSampleRate
+						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
+						bufferSize: vadWorkerBufferSize,
+						vadMode: vadWorkerVadMode
+					}
+				}
+			}
+		};
+		window.vadWorker = vadWorker;
+		var vadWorkerIndex;
 		
 		//put together modules
 		var activeModules = [];
 		if (doUseVolumeProcessor){
 			activeModules.push(volumeProcessor);
+			volumeProcessorIndex = activeModules.length;
 		}
 		if (doUseResampler && !isLegacyScriptProcessor){
 			activeModules.push(resampler);
+			resamplerIndex = activeModules.length;
 		}else if (doUseResampler && isLegacyScriptProcessor){
 			activeModules.push(resamplerWorker);
+			resamplerWorkerIndex = activeModules.length;
 		}else if (!isLegacyScriptProcessor){
 			activeModules.push(bufferSwitch);
+			bufferSwitchIndex = activeModules.length;
 		}
 		if (doUseWaveEncoder){
 			activeModules.push(waveEncoder);
+			waveEncoderIndex = activeModules.length;
+			
+			//add to send function
+			bufferSwitch.settings.sendToModules.push(waveEncoderIndex);
+			resampler.settings.sendToModules.push(waveEncoderIndex);
+			resamplerWorker.settings.sendToModules.push(waveEncoderIndex);
+		}
+		if (doUseVadWorker){
+			activeModules.push(vadWorker);
+			vadWorkerIndex = activeModules.length;
+			
+			//add to send function
+			bufferSwitch.settings.sendToModules.push(vadWorkerIndex);
+			resampler.settings.sendToModules.push(vadWorkerIndex);
+			resamplerWorker.settings.sendToModules.push(vadWorkerIndex);
 		}
 				
 		//create processor
@@ -563,8 +492,52 @@
 	
 	//Audio node data/visualizations:
 	
+	function setVolume1(data){
+		//console.log(data);
+		if (data.rms != undefined){
+			plotData(data.rms, 1);
+			if (data.avg) setVolumeBar(data.avg);
+		}else{
+			console.log(data);
+		}
+		if (data.isClipped){
+			setVolumeBarClipped();
+		}
+	}
+	function setVolume2(data){
+		//console.log(data.samples);
+		if (data.rms != undefined){
+			plotData(data.rms, 2);
+		}else{
+			console.log(data);
+		}
+	}
+	function testBuffer(data){
+		if (data.rms != undefined){
+			setVolume2(data);
+		}
+		if (data.test){
+			console.error("test", data.test);
+			window.newBuff = data.test;
+			if (data.sampleRate){
+				SepiaFW.webAudio.encodeWaveBuffer(window.newBuff, data.sampleRate, data.channels || 1, true, function(r){
+					addWaveToPage(r.wav);
+					plotData(data.test);
+				});
+			}
+		}
+	}
+	function setVoiceActivity(data){
+		//console.log("vad", data);
+		if (data.voiceActivity != undefined){
+			plotData(data.voiceActivity, 3);
+		}
+	}
+	
 	var doUseVolumeProcessor = document.getElementById("useVolumeProcessor").checked;
-	var volMeterOutBar = document.getElementById('volumeMeterNodeOutput').firstChild;
+	var volMeterOut = document.getElementById('volumeMeterNodeOutput');
+	var volMeterOutBar = volMeterOut.firstChild;
+	var volMeterClipTimer;
 	var volGain = +document.getElementById('volumeMeterGain').value;
 	var volProcFps = +document.getElementById('volumeMeterFps').value;
 	//var volSmooth = 0.8;	//0=none, 1=max
@@ -584,6 +557,11 @@
 		//console.log("volume-bar data", data);
 		var volPercent = Math.min(100, Math.round(vol * 100));
 		volMeterOutBar.style.width = (volPercent + "%");
+	}
+	function setVolumeBarClipped(){
+		volMeterOut.style.outline = "1px solid red";
+		clearTimeout(volMeterClipTimer);
+		setTimeout(function(){ volMeterOut.style.outline = ""; }, 3000);
 	}
 	function useVolumeProcessor(useIt){
 		doUseVolumeProcessor = useIt;
@@ -680,15 +658,6 @@
 			}
 		}
 	}
-	function addWaveToPage(wavAudio, targetEle){
-		var audioEle = document.createElement("audio");
-		audioEle.src = window.URL.createObjectURL((wavAudio.constructor.name == "Blob")? wavAudio : (new Blob([wavAudio], { type: "audio/wav" })));
-		audioEle.setAttribute("controls", "controls");
-		var audioBox = document.createElement("div");
-		audioBox.appendChild(audioEle);
-		if (!targetEle) targetEle = document.getElementById("mainView") || document.body;
-		targetEle.appendChild(audioBox);
-	}
 	function useWaveEncoder(useIt){
 		doUseWaveEncoder = useIt;
 		if (useIt){
@@ -700,91 +669,22 @@
 			showMediaRecorderCodecs();
 		}
 	}
-	
-	var fixedPlots = {
-		1: {
-			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
-				rememberMax: true
-			})), 
-			use: document.getElementById("usePlot1").checked
-		},
-		2: {
-			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart2'), 150, {
-				rememberMax: true
-			}, {
-				showAxisX: false
-			})),
-			use: document.getElementById("usePlot2").checked
-		}
+
+	var doUseVadWorker = document.getElementById("useVadWorker").checked;
+	var vadWorkerBufferSize = +document.getElementById("vadWorkerBufferSize").value; 	//e.g. 960;
+	var vadWorkerVadMode = +document.getElementById("vadWorkerVadMode").value; 			//e.g. 3;
+	function setVadWorkerBufferSize(val){
+		vadWorkerBufferSize = val;
 	}
-	function addChartContainerToPage(){
-		var ele = document.createElement("div");
-		ele.className = "chart";
-		document.getElementById("mainView").appendChild(ele);
-		return ele;
+	function setVadWorkerVadMode(val){
+		vadWorkerVadMode = val;
 	}
-	function plotData(data, plotIndex){
-		var p = fixedPlots[plotIndex];
-		if (p){
-			if (p.use){
-				p.graph.addValues(data);
-				p.graph.draw();
-			}
+	function useVadWorker(useIt){
+		doUseVadWorker = useIt;
+		if (useIt){
+			document.getElementById("vadWorkerControls").style.display = "";
 		}else{
-			var ele = addChartContainerToPage();
-			var x = uPlot.lazy.createSequence(0, data.length);
-			uPlot.lazy.plot({
-				targetElement: ele,
-				showPoints: false,
-				strokeWidth: 1,
-				data: [x, data]
-			});
-		}
-	}
-	function usePlot(index, ele){
-		var p = fixedPlots[index];
-		if (p){
-			p.use = ele.checked;
-			var container = document.getElementById("chart" + index);
-			if (container) container.style.display = p.use? "" : "none";
-		}
-	}
-	uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
-		
-	function setVolume1(data){
-		//console.log(data);
-		if (data.rms != undefined){
-			plotData(data.rms, 1);
-			if (data.avg) setVolumeBar(data.avg);
-		}else{
-			console.log(data);
-		}
-	}
-	function setVolume2(data){
-		//console.log(data.samples);
-		if (data.rms != undefined){
-			plotData(data.rms, 2);
-		}else{
-			console.log(data);
-		}
-	}
-	function debugInfo(source, data){
-		console.log(source, data);
-	}
-	
-	function testBuffer(data){
-		if (data.rms){
-			setVolume2(data);
-		}
-		if (data.test){
-			console.error("test", data.test);
-			window.newBuff = data.test;
-			if (data.sampleRate){
-				SepiaFW.webAudio.encodeWaveBuffer(window.newBuff, data.sampleRate, data.channels || 1, true, function(r){
-					addWaveToPage(r.wav);
-					plotData(data.test);
-				});
-			}
+			document.getElementById("vadWorkerControls").style.display = "none";
 		}
 	}
 	
@@ -879,67 +779,6 @@
 	var mediaRecorderChunks = [];
 	var mediaRecorderSourceInfo;
 	
-	//-----------------------------------------------------
-	
-	function testResampler(obj, quality){
-		if (!obj) obj = {};
-		if (!quality) quality = 0;
-		var smallBuff;
-		var smallBuffRes;
-		var testFile = "test-sounds/chatter_counting.wav";
-		var testFileSampleRate = 24000;
-		SepiaFW.webAudio.readFileAsBuffer(testFile, function(arrayBuffer){
-			var buff = new Int16Array(arrayBuffer); //new Uint8Array(arrayBuffer);
-			//var buff = new Int16Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
-			//buff = buff.map(function(num){ return (num / 17) * 32767; });
-			buff = buff.slice(40000, 60000);
-			//smallBuff = buff.slice(40000, 60000);
-			smallBuff = buff;
-			/*smallBuff = pcmConvert(buff, {
-				channels: 1,
-				interleaved: false,
-				dtype: 'int16',
-				endianness: 'le'
-			}, {
-				dtype: 'int8'
-			});*/
-			plotData(smallBuff);
-			SepiaFW.webAudio.resampleBufferViaSpeex(smallBuff, testFileSampleRate, 16000, 1, quality, function(r){
-				smallBuffRes = r.samples[0];
-				/*smallBuffRes = pcmConvert(r.samples[0], {
-					channels: 1,
-					interleaved: false,
-					dtype: 'uint8',
-					endianness: 'le'
-				}, {
-					channels: 1,
-					interleaved: false,
-					dtype: 'float32',
-					endianness: 'le'
-				});*/
-				plotData(smallBuffRes);
-				obj.a = smallBuff;
-				obj.b = smallBuffRes;
-			});
-		}, console.error);
-		return obj;
-	}
-	function testResampler2(){
-		//FirFilterResampler
-		var buff = new Float32Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
-		buff = [...buff, ...buff, ...buff];
-		buff = buff.map(function(num){ return (num - 9)/17; });
-		plotData(buff);
-		
-		var resampler = new FirFilterResampler().getProcessor(48000, 16000, 127);
-		console.log("filterArray", resampler.filterArray);
-		if (resampler.filterArray) plotData(resampler.filterArray);
-		
-		var buffRes = resampler.process(buff);
-			
-		plotData(buffRes);
-		return {a: buff, b: buffRes};
-	}
 </script>
 </body>
 </html>

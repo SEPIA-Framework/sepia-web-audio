@@ -1,0 +1,113 @@
+* {
+	box-sizing: border-box;
+}
+html, body {
+	font-family: sans-serif;
+	text-align: center;
+}
+#mainView > div {
+	margin: 16px 8px;
+}
+button {
+	display: inline-block;
+	margin: 8px;
+}
+label, input {
+	margin: 8px;
+}
+input.small {
+	width: 72px;
+}
+select {
+	min-height: 21px;
+}
+label + select,
+label + input {
+	margin-left: 0;
+}
+.contorlGroup {
+	display: flex;
+	align-items: center;
+	align-content: center;
+	flex-wrap: wrap;
+}
+.contorlGroup.center {
+	justify-content: center;
+}
+#mainView {
+	display: inline-block;
+	width: 100%;
+	max-width: 1024px;
+	text-align: center;
+	padding: 16px; 
+	margin:0;
+}
+#status {
+	display: inline-block;
+	width: 90px;
+	height: 90px;
+	background: #aaa;
+	border-radius: 50%;
+	margin: 8px;
+}
+#status.ready {
+	background: #000;
+}
+#status.listening {
+	background: #ff3355;
+}
+#status.voiceactivity {
+	background: #16abc3;
+}
+#status.insequence {
+	background: #33ee88;
+}
+#logMessages {
+	max-height: 50vh;
+	white-space: pre;
+	text-align: left;
+	overflow: auto;
+	border: 1px solid currentColor;
+	padding: 16px;
+	overflow: auto;
+	font-size: 15px;
+}
+.chart {
+	margin: 30px 0;
+	height: 128px;
+	border: 1px solid #000;
+	overflow: auto;
+}
+.slidecontainer {
+	display: flex;
+	align-items: center;
+}
+#volumeMeterNodeOutput {
+	flex: 1 1 auto;
+	min-width: 128px;
+	border: 1px solid currentColor;
+	margin: 8px;
+}
+#volumeMeterNodeOutput > div {
+	margin: 0;
+	padding: 0;
+	height: 21px;
+	width: 0%;
+	background: #ff3355;
+}
+#waveEncoderGateState {
+	width: 18px;
+	height: 18px;
+	background: #eee;
+	border-radius: 9px;
+}
+#waveEncoderGateState.open {
+	background: #0f5;
+}
+#waveEncoderGateState.close {
+	background: #000;
+	border-radius: 0;
+}
+#micDeviceId {
+	max-width: 160px;
+}

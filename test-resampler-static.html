@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>SEPIA Web Audio Resampler Test</title>
+
+	<script src="src/visualization/uPlot.iife.min.js"></script>
+	<script src="src/visualization/uPlot-lazy.min.js"></script>
+	<script src="src/visualization/uPlot-lazy-heatmap.min.js"></script>
+	<link rel="stylesheet" href="src/visualization/uPlot.min.css">
+
+	<script src="src/polyfills/audioworklet-polyfill.js"></script>
+	<script type="text/javascript" src="src/processor.js"></script>
+	
+	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
+	<script type="text/javascript" src="src/resources/fir-filter-resampler.js"></script>
+	
+	<link rel="stylesheet" type="text/css" href="tests.css">
+	<style></style>
+</head>
+<body>
+<div id="mainView">
+	<h1>SEPIA Web Audio Resampler</h1>
+	<button onclick="testResampler();">Test Speex Resampler</button>
+	<button onclick="testResampler2();">Test FIR Resampler</button>
+	<!--<div id="chart3" class="chart"></div>-->
+</div>
+<script type='text/javascript' src="test-commons.js"></script>
+<script type='text/javascript'>
+
+	//set correct modules folder
+	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+	
+	function testResampler(obj, quality){
+		if (!obj) obj = {};
+		if (!quality) quality = 0;
+		var smallBuff;
+		var smallBuffRes;
+		var testFile = "test-sounds/chatter_counting.wav";
+		var testFileSampleRate = 24000;
+		SepiaFW.webAudio.readFileAsBuffer(testFile, function(arrayBuffer){
+			var buff = new Int16Array(arrayBuffer); //new Uint8Array(arrayBuffer);
+			//var buff = new Int16Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
+			//buff = buff.map(function(num){ return (num / 17) * 32767; });
+			buff = buff.slice(40000, 60000);
+			//smallBuff = buff.slice(40000, 60000);
+			smallBuff = buff;
+			/*smallBuff = pcmConvert(buff, {
+				channels: 1,
+				interleaved: false,
+				dtype: 'int16',
+				endianness: 'le'
+			}, {
+				dtype: 'int8'
+			});*/
+			plotData(smallBuff);
+			SepiaFW.webAudio.resampleBufferViaSpeex(smallBuff, testFileSampleRate, 16000, 1, quality, function(r){
+				smallBuffRes = r.samples[0];
+				/*smallBuffRes = pcmConvert(r.samples[0], {
+					channels: 1,
+					interleaved: false,
+					dtype: 'uint8',
+					endianness: 'le'
+				}, {
+					channels: 1,
+					interleaved: false,
+					dtype: 'float32',
+					endianness: 'le'
+				});*/
+				plotData(smallBuffRes);
+				obj.a = smallBuff;
+				obj.b = smallBuffRes;
+			});
+		}, console.error);
+		return obj;
+	}
+	function testResampler2(){
+		//FirFilterResampler
+		var buff = new Float32Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
+		buff = [...buff, ...buff, ...buff];
+		buff = buff.map(function(num){ return (num - 9)/17; });
+		plotData(buff);
+		
+		var resampler = new FirFilterResampler().getProcessor(48000, 16000, 127);	//inputSampleRate, targetSampleRate, minSampleSize (filter size is Min(127, odd(minSampleSize)))
+		console.log("filterArray", resampler.filterArray);
+		if (resampler.filterArray) plotData(resampler.filterArray);
+		
+		var buffRes = resampler.process(buff);
+			
+		plotData(buffRes);
+		return {a: buff, b: buffRes};
+	}
+</script>
+</body>
+</html>
