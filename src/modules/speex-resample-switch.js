@@ -1,4 +1,6 @@
-//import { RingBuffer } from './shared/ring-buffer.min.js';				//TODO: 'import' not yet supported by FF :-( (Dec 2020)
+//TODO: 'import' not yet supported by FF :-( (Dec 2020)
+//import { SampleRateException, SampleSizeException } from './shared/common.js';
+//import { RingBuffer } from './shared/ring-buffer.min.js';
 //import { SpeexResampler } from './shared/speex-resampler-interface.min.js';
 //import { Speex } from './shared/speex-resampler-wasm.js';
 class RingBuffer{constructor(a,b,c){this._readIndex=0,this._writeIndex=0,this._framesAvailable=0,this._channelCount=b,this._length=a,this._channelData=[];for(let d=0;d<this._channelCount;++d)this._channelData[d]="Uint16"==c?new Uint16Array(a):"Int16"==c?new Int16Array(a):"Uint8"==c?new Uint8Array(a):"Int8"==c?new Int8Array(a):new Float32Array(a)}get framesAvailable(){return this._framesAvailable}push(a){let b=a[0].length;for(let c,d=0;d<b;++d){c=(this._writeIndex+d)%this._length;for(let b=0;b<this._channelCount;++b)this._channelData[b][c]=a[b][d]}this._writeIndex+=b,this._writeIndex>=this._length&&(this._writeIndex-=this._length),this._framesAvailable+=b,this._framesAvailable>this._length&&(this._framesAvailable=this._length)}pull(a){if(0!==this._framesAvailable){let b=a[0].length;for(let c,d=0;d<b;++d){c=(this._readIndex+d)%this._length;for(let b=0;b<this._channelCount;++b)a[b][d]=this._channelData[b][c]}this._readIndex+=b,this._readIndex>=this._length&&(this._readIndex-=this._length),this._framesAvailable-=b,0>this._framesAvailable&&(this._framesAvailable=0)}}};
@@ -165,6 +167,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 			that._newInputBuffer = null;
 			that._newOutputBuffer = null;
 			that.resampler = null;
+			speexModule = null;
 		}
 		
 		//on-request resampling
@@ -235,21 +238,26 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 			}
         }
 		
+		function onSpeexLog(msg){
+			console.error("SpeexModuleLog -", msg);			//DEBUG (use postMessage?)
+		}
+		//function onSpeexError(msg){}		//TODO: we could wrap the 'resampler.processChunk' function in try-catch and log the error here
+		
 		//prepare
 		if (this.resamplingMode){
 			if (!speexModule){
-				console.error("Init Speex");			//DEBUG
+				onSpeexLog("Init. Speex WASM module");
 				SpeexResampler.initPromise = this.Speex().then(function(s){
-					console.error("Speex ready");		//DEBUG
-					speexModule = s;
+					onSpeexLog("Speex WASM module ready");
+					speexModule = s;	//NOTE: used inside Speex
 					ready(false);
 				});
 			}else{
-				console.error("Speex already there");	//DEBUG
+				onSpeexLog("Speex WASM moduel already loaded");
 				ready(false);
 			}
 		}else{
-			console.error("Speex not needed");			//DEBUG
+			onSpeexLog("Speex WASM module not needed");
 			ready(true);
 		}
 	}
