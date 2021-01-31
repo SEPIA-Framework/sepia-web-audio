@@ -43,15 +43,34 @@ onmessage = function(e) {
 let inputSampleRate;
 let channelCount;
 let inputSampleSize;
-let processBufferSize;
+let processBufferSize;	//defines '_processRingBuffer' size together with 'inputSampleSize'
 let vadMode;
 let isFloat32Input;		//default false
 
-let _processRingBuffer;
-let _vadFrames;
-let _vadBufferSize;
+let voiceEnergy;
+let voiceEnergyCap = 50;
+let voiceEnergyDropRate = 2;
+let _samplesToTimeMsFactor;
+
+let _processRingBuffer;		//holds multiple vadFrames
+let _vadFrames;				//each frame processes one chunk of '_vadBufferSize' as long as '_processRingBuffer' has enough samples
+let _vadFrameTimeMs;		//real time (ms) of one vadFrame (defined by sample-rate and buffer size)
+let _vadBufferSize;			//size of a single vadFrame (restrictions apply)
 let _vadBuffer;
-let _int16InputBuffer;	//used if input is float32
+let _int16InputBuffer;		//used only if input is float32
+
+//sequence control
+let useSequenceAnalyzer = false;
+let voiceActivationTime;
+let voiceResetTime;
+let silenceActivationTime;
+let maxSequenceTime;
+let minSequenceTime;
+
+let _sequenceVoiceTime;
+let _sequenceSilenceTime;
+let _sequenceSawVoice, _sequenceSawSilenceAfterVoice, _sequenceFinishedVoice;
+let _sequenceIsActive, _sequenceIsDone, _sequenceStartedAt;
 
 let _isFirstValidProcess;
 
@@ -83,6 +102,11 @@ function init(){
 		_int16InputBuffer = [new Int16Array(inputSampleSize)];
 	}
 	
+	_samplesToTimeMsFactor = 1000/inputSampleRate;
+	_vadFrameTimeMs = Math.round(_vadBufferSize * _samplesToTimeMsFactor);
+	
+	resetSequence();
+	
 	_isFirstValidProcess = true;
 }
 function ready(skipResampler){
@@ -96,7 +120,11 @@ function ready(skipResampler){
 			processBufferSize: processBufferSize,
 			vadMode: vadModule.getMode(),
 			vadFramesMax: _vadFrames,
-			vadBufferSize: _vadBufferSize
+			vadBufferSize: _vadBufferSize,
+			vadFrameTimeMs: _vadFrameTimeMs,
+			voiceEnergyCap: voiceEnergyCap,
+			voiceEnergyDropRate: voiceEnergyDropRate,
+			useSequenceAnalyzer: useSequenceAnalyzer
 		}
 	});
 }
@@ -108,6 +136,18 @@ function constructWorker(options) {
 	processBufferSize = options.setup.bufferSize || inputSampleSize;
 	vadMode = (options.setup.vadMode != undefined)? options.setup.vadMode : 3;
 	isFloat32Input = (options.setup.isFloat32 != undefined)? options.setup.isFloat32 : false;
+	if (options.setup.voiceEnergyCap != undefined) voiceEnergyCap = options.setup.voiceEnergyCap;
+	if (options.setup.voiceEnergyDropRate) voiceEnergyDropRate = options.setup.voiceEnergyDropRate;
+	if (options.setup.sequence){
+		useSequenceAnalyzer = true;
+		voiceActivationTime = options.setup.sequence.voiceActivationTime || 250;
+		voiceResetTime = options.setup.sequence.voiceResetTime || 1500;
+		silenceActivationTime = options.setup.sequence.silenceActivationTime || 250;
+		maxSequenceTime = options.setup.sequence.maxSequenceTime || 6000;
+		minSequenceTime = options.setup.sequence.minSequenceTime || 600;
+	}else{
+		useSequenceAnalyzer = false;
+	}
 	init();
 	
 	function onVadLog(msg){
@@ -135,6 +175,85 @@ function constructWorker(options) {
 		onVadLog("WebRTC VAD module already loaded");		//DEBUG
 		ready();
 	}
+}
+
+//sequence block
+function sequenceDetector(voiceActivity){
+	if (voiceActivity == 0){
+		if (_sequenceSawVoice){
+			_sequenceSilenceTime += _vadFrameTimeMs;
+			if (_sequenceSilenceTime > voiceResetTime){
+				_sequenceSawSilenceAfterVoice = true;
+			}else if (_sequenceSilenceTime > silenceActivationTime){
+				_sequenceVoiceTime = 0;
+			}
+		}
+	}else{
+		_sequenceVoiceTime += _vadFrameTimeMs;
+		if (!_sequenceSawVoice && _sequenceVoiceTime > voiceActivationTime){
+			_sequenceSawVoice = true;
+			registerEvent(1, 'voice_start');
+		}else if (_sequenceVoiceTime > voiceActivationTime){
+			_sequenceSilenceTime = 0;
+		}
+	}
+	
+	if (_sequenceSawVoice && _sequenceSawSilenceAfterVoice){
+		_sequenceFinishedVoice = true;
+	}else if (_sequenceSawVoice && (_sequenceVoiceTime > minSequenceTime)){
+		if (!_sequenceIsActive){
+			_sequenceIsActive = true;
+			_sequenceStartedAt = Date.now();
+			registerEvent(2, 'sequence_started');
+		}
+	}
+
+	if (_sequenceFinishedVoice){
+		_sequenceIsDone = true;
+		registerEvent(3, 'finished_voice');
+
+	}else if (_sequenceSawVoice){
+		if (_sequenceIsActive && ((Date.now() - _sequenceStartedAt) > maxSequenceTime)) {
+			_sequenceIsDone = true;
+			registerEvent(4, 'finished_voice_maxtime');
+		}
+	}
+		
+	if (_sequenceIsDone){
+		if (_sequenceIsActive) registerEvent(5, 'sequence_complete');
+		resetSequence();
+	}
+}
+function resetSequence(){
+	voiceEnergy = 0;
+	_sequenceSawVoice = false;
+	_sequenceFinishedVoice = false;
+	_sequenceSawSilenceAfterVoice = false;
+	_sequenceVoiceTime = 0;
+	_sequenceSilenceTime = 0;
+	_sequenceIsActive = false;
+	_sequenceStartedAt = 0;
+	_sequenceIsDone = false;
+}
+function registerEvent(code, msg, data){
+	var msg = {
+		vadSequenceCode: code,
+		vadSequenceMsg: msg
+	};
+	switch (code){
+		//case 1: voice start
+		//case 2: sequence start
+		//case 3: case 4: finished voice
+		case 5:
+			//sequence complete
+			msg.vadSequenceStarted = _sequenceStartedAt;
+			msg.vadSequenceEnded = Date.now();
+			break;
+		default:
+			break;
+	}
+	//Send info
+	postMessage(msg);
 }
 
 function process(data) {
@@ -182,11 +301,24 @@ function process(data) {
 			//activity check
 			var voiceActivity = vadModule.getVoiceActivity(inputSampleRate, _vadBuffer[0]);		//TODO: is MONO
 			vadResults.push(voiceActivity);
+			
+			//voice energy and sequence check
+			if (voiceActivity){
+				voiceEnergy++;
+				if (voiceEnergyCap && voiceEnergy > voiceEnergyCap) voiceEnergy = voiceEnergyCap;
+			}else{
+				voiceEnergy = voiceEnergy - voiceEnergyDropRate;
+				if (voiceEnergy < 0) voiceEnergy = 0;
+			}
+			if (useSequenceAnalyzer){
+				sequenceDetector(voiceActivity);
+			}
 		}
 		if (vadResults.length > 0){
 			//Send info
 			postMessage({
 				voiceActivity: vadResults,
+				voiceEnergy: voiceEnergy
 			});
 		}
 	}
@@ -200,6 +332,7 @@ function handleEvent(data){
 function start(options) {
     //TODO: anything to do?
 	//NOTE: timing of this signal is not very well defined, use only for gating or similar stuff!
+	resetSequence();
 }
 function stop(options) {
 	//TODO: anything to do?

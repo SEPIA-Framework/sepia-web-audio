@@ -26,6 +26,7 @@ function addWaveToPage(wavAudio, targetEle){
 	targetEle.appendChild(audioBox);
 }
 
+uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
 var fixedPlots = {
 	1: {
 		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
@@ -48,7 +49,15 @@ var fixedPlots = {
 			yRange: [-0.1, 1.1]
 		})),
 		use: (document.getElementById("usePlot3")? document.getElementById("usePlot3").checked : true)
-	}
+	},
+	4: {
+		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart4'), 150, {
+			rememberMax: true
+		}, {
+			fill: ["#ceff1a1a"]
+		})), 
+		use: (document.getElementById("usePlot4")? document.getElementById("usePlot4").checked : true)
+	},
 }
 function usePlot(index, ele){
 	var p = fixedPlots[index];
@@ -58,7 +67,6 @@ function usePlot(index, ele){
 		if (container) container.style.display = p.use? "" : "none";
 	}
 }
-uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
 
 function addChartContainerToPage(){
 	var ele = document.createElement("div");
