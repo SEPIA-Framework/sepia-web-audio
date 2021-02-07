@@ -17,6 +17,7 @@ if (!(typeof SepiaFW == "object")){
 	
 	WebAudio.isStreamRecorderSupported = testStreamRecorderSupport(); 		//set once at start
 	WebAudio.isNativeStreamResamplingSupported = true; 	//will be tested on first media-stream creation
+	WebAudio.contentFetchTimeout = 8000;	//used e.g. for WASM pre-loads etc.
 	
 	WebAudio.defaultProcessorOptions = {
 		moduleFolder: "modules",
@@ -218,7 +219,7 @@ if (!(typeof SepiaFW == "object")){
 		}
 		function getModuleInfo(module){
 			//supports "string" (name) or "object" with options
-			var moduleType, moduleName, moduleSetup;
+			var moduleType, moduleName, moduleSetup, modulePreLoads;
 			if (typeof module == "object"){
 				//1: AudioWorklet, 2: Web Worker, 3: Script Processor (legacy), 4: Audio Node (legacy)
 				if ((module.type && module.type == "worker") || module.isWorker){
@@ -232,12 +233,14 @@ if (!(typeof SepiaFW == "object")){
 				}
 				moduleName = module.name;
 				moduleSetup = module.setup || module.settings;
+				modulePreLoads = module.preLoad || {};
 			}else{
 				moduleType = 1;
 				moduleName = module;
 				moduleSetup = {};
+				modulePreLoads = {};
 			}
-			return {moduleType: moduleType, moduleName: moduleName, moduleSetup: moduleSetup};
+			return {moduleType: moduleType, moduleName: moduleName, moduleSetup: moduleSetup, modulePreLoads: modulePreLoads};
 		}
 		
 		//States
@@ -261,10 +264,11 @@ if (!(typeof SepiaFW == "object")){
 		
 		//Add audio worklets
 		function addModules(processNodes, sourceHasWorkletSupport, completeCallback){
+			var startIndex = processNodes.length;
 			if (options.modules && options.modules.length){
 				var initInfo = new Array(options.modules.length);
-				var n = options.modules.length;
-				options.modules.forEach(function(module, i){
+				var N = options.modules.length;
+				options.modules.forEach(async function(module, i){
 					addInitCondition("module-" + i);
 					
 					var info = getModuleInfo(module);
@@ -272,8 +276,37 @@ if (!(typeof SepiaFW == "object")){
 					var moduleName = info.moduleName;
 					var moduleSetup = info.moduleSetup;
 					
+					//pre-loads - NOTE: there might be room for optimizations here ...
+					var preLoads = {};
+					var preLoadKeys = Object.keys(info.modulePreLoads);
+					await Promise.all(preLoadKeys.map(async function(plKey, j){
+						var plPath = info.modulePreLoads[plKey];	//NOTE: this can be a string or an object ({type: 2, path: 'url'})
+						var plType = 1;		//1: text, 2: arraybuffer
+						if (typeof plPath == "object"){
+							plType = (plPath.type && (plPath.type == 2 || plPath.type.toLowerCase() == "arraybuffer"))? 2 : 1;
+							plPath = plPath.path || plPath.url;
+						}else if (plKey.indexOf("wasmFile") == 0){
+							plType = 2;
+						}
+						try{
+							var data;
+							if (!plPath || plType > 2){
+								throw {name: "PreLoadError", message: "Missing 'path' (url) or unsupported type (use 1=text or 2=arraybuffer)"};
+							}else if (plType == 1){
+								data = await textLoaderPromise(plPath);
+							}else if (plType == 2){
+								data = await arrayBufferLoaderPromise(plPath);
+							}
+							preLoads[plKey] = data;
+						}catch (err){
+							throw {name: "AddModuleError", message: ("Failed to pre-load data: " + plKey + " - name: " + moduleName), info: err};
+						}
+					}));
+					
 					//add some context info
 					var fullOptions =  moduleSetup.options || {};
+					fullOptions.preLoadResults = preLoads;
+					
 					var thisProcessNode;
 					function onMessage(event){
 						if (!event || event.data == undefined){
@@ -286,7 +319,7 @@ if (!(typeof SepiaFW == "object")){
 								moduleName: thisProcessNode.moduleName,
 								moduleInfo: thisProcessNode.moduleInfo
 							};
-							if (--n == 0){
+							if (--N == 0){
 								completeCallback(initInfo);
 							}
 						}else if (event.data.moduleResponse){
@@ -297,12 +330,12 @@ if (!(typeof SepiaFW == "object")){
 							if (event.data.moduleEvent){
 								//EVENT
 								moduleSetup.sendToModules.forEach(function(n){
-									processNodes[n].sendToModule({ctrl: {action: "handle", data: event.data}});
+									if (!processNodes[n].ignoreSendToModules) processNodes[n].sendToModule({ctrl: {action: "handle", data: event.data}});
 								});
 							}else{
 								//PROCESS (default)
 								moduleSetup.sendToModules.forEach(function(n){
-									processNodes[n].sendToModule({ctrl: {action: "process", data: event.data}});
+									if (!processNodes[n].ignoreSendToModules) processNodes[n].sendToModule({ctrl: {action: "process", data: event.data}});
 								});
 							}
 						}
@@ -374,6 +407,7 @@ if (!(typeof SepiaFW == "object")){
 						throw {name: "AddModuleError", message: "Unknown module type."};
 					}
 					thisProcessNode.moduleType = moduleType;
+					thisProcessNode.ignoreSendToModules = false;	//this is most useful for workers to prevent serialization if message is not processed anyway
 					module.handle = thisProcessNode;
 					
 					//adapt module to first non-worklet source?
@@ -395,8 +429,8 @@ if (!(typeof SepiaFW == "object")){
 							}
 						}
 					}
-					
-					processNodes.push(thisProcessNode);
+
+					processNodes[startIndex + i] = thisProcessNode;
 				});
 			}else{
 				completeCallback([]);
@@ -428,6 +462,7 @@ if (!(typeof SepiaFW == "object")){
 			
 			//Connect other modules (nodes/workers)?
 			addModules(processNodes, sourceHasWorkletSupport, function(info){
+				//complete the rest:
 				modulesInitInfo = info;
 				completeInitCondition("modulesSetup");
 				thisProcessor.processNodes = processNodes;
@@ -1141,16 +1176,31 @@ if (!(typeof SepiaFW == "object")){
 			SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer");
 		}else{
 			//fallback
-			xmlHttpCallForArrayBuffer(fileUrl, successCallback, errorCallback);
+			xmlHttpCall('arraybuffer', fileUrl, successCallback, errorCallback);
 		}
 	}
-	
-	//fallback for: SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer");
-	function xmlHttpCallForArrayBuffer(fileUrl, successCallback, errorCallback){
+	WebAudio.readFileAsText = function(fileUrl, successCallback, errorCallback){
+		if (SepiaFW && SepiaFW.files){
+			SepiaFW.files.fetch(fileUrl, successCallback, errorCallback);	//default: text
+		}else{
+			xmlHttpCall('text', fileUrl, successCallback, errorCallback);
+		}
+	}
+	function arrayBufferLoaderPromise(url){
+		return new Promise(function(resolve, reject){
+			WebAudio.readFileAsBuffer(url, function(arraybuffer){ resolve(arraybuffer); }, function(err){ reject(err); });
+		});
+	}
+	function textLoaderPromise(url){
+		return new Promise(function(resolve, reject){
+			WebAudio.readFileAsText(url, function(text){ resolve(text); }, function(err){ reject(err); });
+		});
+	}
+	function xmlHttpCall(responseType, fileUrl, successCallback, errorCallback){
 		var request = new XMLHttpRequest();
 		request.open('GET', fileUrl);
-		request.responseType = 'arraybuffer';
-		request.timeout = 8000;
+		request.responseType = responseType; //'arraybuffer';
+		request.timeout = WebAudio.contentFetchTimeout;
 		request.onload = function(e){
 			if (request.status >= 200 && request.status < 300){
 				successCallback(request.response); 	//the arraybuffer is in request.response
