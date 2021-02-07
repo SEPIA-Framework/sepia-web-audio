@@ -16,6 +16,10 @@ function BufferSizeException(message){
 	this.message = message;
 	this.name = "BufferSizeException";
 }
+function ChannelCountException(message){
+	this.message = message;
+	this.name = "ChannelCountException";
+}
 
 //Converters
 

@@ -86,6 +86,7 @@ let recordBufferMaxN;
 let gateIsOpen = false;
 let _gateOpenTS = 0;
 let _gateCloseTS = 0;
+
 let _isFirstValidProcess = true;
 
 function init(){
