@@ -370,7 +370,7 @@
 						bufferSize: resamplerBufferSize,		//TODO: this has no effect yet
 						version: porcupineVersion,
 						keywords: (porcupineVersion == 14? ["Hey SEPIA"] : ["Computer", "Jarvis", "Picovoice"]),
-						sensitivities: (porcupineVersion == 14? [0.7] : [0.7, 0.7, 0.7, 0.7])
+						sensitivities: (porcupineVersion == 14? [wakeWordSensitivity] : [wakeWordSensitivity, wakeWordSensitivity, wakeWordSensitivity])
 					}
 				}
 			}
