@@ -89,7 +89,12 @@
 	</div>
 	<div id="wakeWordWorkerControls" class="contorlGroup">
 		<label><b>Wake-Word</b></label>
-		<label>TBD - (Porcupine fixed values)</label>
+		<label>Buffer-Size:</label><input disabled placeholder="same as input atm.">
+		<label>Sensitivity:</label><input id="wakeWordSensitivity" class="small" type="number" value="0.7" max="1" min="0" step="0.1" placeholder="0=low, 1=high" onchange="setWakeWordSensitivity(+this.value);">
+		<label>Porcupine Version:</label><select id="porcupineVersionSelect" onchange="setPorcupineVersion(+this.value);">
+			<option value="14" selected>v1.4</option>
+			<option value="19">v1.9</option>
+		</select><div style="flex: 1 0 100%;"></div>
 		<label>Gate:</label><div id="wakeWordGateState"></div><label></label>
 		<label>Control:</label><button onclick="wakeWordSetGate('open');">Listen</button><button onclick="wakeWordSetGate('close');">Stop</button><label></label>
 	</div>
@@ -152,6 +157,7 @@
 			+ "Input Sample-Rate=" + info.inputSampleRate
 			+ " - Source-Type=" + info.sourceInfo.type;
 		console.log("onReady", info);
+		if (doUseWakeWordWorker) showLogMessage("Available wake-words", window.porcupineWorker.settings.options.setup.keywords);
 		
 		//for testing:
 		if (!doUseWaveEncoder && rec.source.mediaStream) createMediaRecorder(rec.source.mediaStream, info.sourceInfo);
@@ -352,19 +358,19 @@
 			name: 'porcupine-wake-word-worker',
 			type: 'worker',
 			preLoad: {
-				wasmFile: 'src/modules/picovoice/porcupine-19.wasm'
+				wasmFile: (porcupineVersion == 14? 'src/modules/picovoice/porcupine-14.wasm' : 'src/modules/picovoice/porcupine-19.wasm')
 			},
 			settings: {
-				onmessage: console.log,		//TODO: change
+				onmessage: onWakeWordMessage,
 				//sendToModules: (doUseWaveEncoder? [waveEncoderIndex] : []),
 				options: {
 					setup: {
 						inputSampleRate: (doUseResampler? resamplerSampleRate : 0),
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
-						bufferSize: 1024,	//TODO: change
-						version: 19,
-						keywords: ["Computer", "Jarvis"],
-						sensitivities: [0.5, 0.5]
+						bufferSize: resamplerBufferSize,		//TODO: this has no effect yet
+						version: porcupineVersion,
+						keywords: (porcupineVersion == 14? ["Hey SEPIA"] : ["Computer", "Jarvis", "Picovoice"]),
+						sensitivities: (porcupineVersion == 14? [0.7] : [0.7, 0.7, 0.7, 0.7])
 					}
 				}
 			}
@@ -581,6 +587,12 @@
 			}
 		}
 	}
+	function onWakeWordMessage(msg){
+		//console.log(msg);
+		if (msg && msg.keyword){
+			showLogMessage("Wake-word detected", msg.keyword);
+		}
+	}
 	function setVoiceActivity(data){
 		//console.log("vad", data);
 		if (data.voiceActivity != undefined){
@@ -782,6 +794,16 @@
 	var doUseWakeWordWorker = document.getElementById("useWakeWordWorker").checked;
 	var wakeWordGate = document.getElementById('wakeWordGateState');
 	var wakeWordGateOpen = false;
+	var wakeWordSensitivity = +document.getElementById("wakeWordSensitivity").value;
+	var porcupineVersion = +document.getElementById("porcupineVersionSelect").value;
+	function setWakeWordSensitivity(sense){
+		wakeWordSensitivity = sense;
+		console.log("wakeWordSensitivity", wakeWordSensitivity);
+	}
+	function setPorcupineVersion(version){
+		porcupineVersion = version;
+		console.log("porcupineVersion", porcupineVersion);
+	}
 	function wakeWordSetGate(state){
 		window.porcupineWorker.handle.sendToModule({gate: state});
 		//wakeWordGate.textContent = state;

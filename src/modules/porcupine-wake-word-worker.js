@@ -131,7 +131,7 @@ function constructWorker(options) {
 	
 	keywords = options.setup.keywords || ["Computer"];
 	keywords.forEach(function(kw){
-		importScripts('./picovoice/porcupine-keywords/' + kw.toLowerCase() + "_wasm_" + porcupineVersion + '.js');
+		importScripts('./picovoice/porcupine-keywords/' + kw.replace(/\s+/, "_").toLowerCase() + "_wasm_" + porcupineVersion + '.js');
 	});
 	sensitivities = options.setup.sensitivities || [0.5];
 	
