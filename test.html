@@ -82,6 +82,17 @@
 		<label><b>Basic Buffer</b></label>
 		<label>Buffer-Size:</label><input id="basicBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512">
 	</div>
+	<div id="vadWorkerControls" class="contorlGroup">
+		<label><b>VAD</b></label>
+		<label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="960" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);">
+		<label>Mode:</label><input id="vadWorkerVadMode" class="small" value="3" placeholder="1-3 (3: agressive)" onchange="setVadWorkerVadMode(+this.value);">
+	</div>
+	<div id="wakeWordWorkerControls" class="contorlGroup">
+		<label><b>Wake-Word</b></label>
+		<label>TBD - (Porcupine fixed values)</label>
+		<label>Gate:</label><div id="wakeWordGateState"></div><label></label>
+		<label>Control:</label><button onclick="wakeWordSetGate('open');">Listen</button><button onclick="wakeWordSetGate('close');">Stop</button><label></label>
+	</div>
 	<div id="waveEncoderControls" class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
 		<label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="0" onchange="setWaveEncoderLookback(this);">
@@ -99,25 +110,23 @@
 		<label>Control:</label><button onclick="startMediaRecorder();">Capture</button><button onclick="stopMediaRecorder();">Stop</button>
 		<label>Export:</label><button onclick="getRawDataFromMediaRecorder();">Show Decoded Data</button>
 	</div>
-	<div id="vadWorkerControls" class="contorlGroup">
-		<label><b>VAD</b></label>
-		<label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="960" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);">
-		<label>Mode:</label><input id="vadWorkerVadMode" class="small" value="3" placeholder="1-3 (3: agressive)" onchange="setVadWorkerVadMode(+this.value);">
-	</div>
 	<div class="contorlGroup">
 		<label><b>Switches:</b></label>
+		<div style="flex: 1 0 100%;"></div>
 		<label>Volume-proc.:</label><input type="checkbox" id="useVolumeProcessor" checked onchange="useVolumeProcessor(this.checked);">
 		<label>Resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);">
 		<label>Wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);">
 		<label>VAD:</label><input type="checkbox" id="useVadWorker" checked onchange="useVadWorker(this.checked);">
+		<label>Wake-Word:</label><input type="checkbox" id="useWakeWordWorker" checked onchange="useWakeWordWorker(this.checked);">
+		<div style="flex: 1 0 100%;"></div>
 		<label>Plot 1:</label><input type="checkbox" id="usePlot1" checked onchange="usePlot(1, this);">
 		<label>Plot 2:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);">
-		<label>Plot 3:</label><input type="checkbox" id="usePlot3" checked onchange="usePlot(3, this);">
+		<label>Plot 3:</label><input type="checkbox" id="usePlot3" onchange="usePlot(3, this);">
 		<label>Plot 4:</label><input type="checkbox" id="usePlot4" checked onchange="usePlot(4, this);">
 	</div>
 	<div id="chart1" class="chart"></div>
 	<div id="chart2" class="chart"></div>
-	<div id="chart3" class="chart"></div>
+	<div id="chart3" class="chart" style="display: none;"></div>
 	<div id="chart4" class="chart"></div>
 </div>
 <script type='text/javascript' src="test-commons.js"></script>
@@ -339,6 +348,30 @@
 		window.vadWorker = vadWorker;
 		var vadWorkerIndex;
 		
+		var porcupineWorker = {
+			name: 'porcupine-wake-word-worker',
+			type: 'worker',
+			preLoad: {
+				wasmFile: 'src/modules/picovoice/porcupine-19.wasm'
+			},
+			settings: {
+				onmessage: console.log,		//TODO: change
+				//sendToModules: (doUseWaveEncoder? [waveEncoderIndex] : []),
+				options: {
+					setup: {
+						inputSampleRate: (doUseResampler? resamplerSampleRate : 0),
+						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
+						bufferSize: 1024,	//TODO: change
+						version: 19,
+						keywords: ["Computer", "Jarvis"],
+						sensitivities: [0.5, 0.5]
+					}
+				}
+			}
+		};
+		window.porcupineWorker = porcupineWorker;
+		var porcupineWorkerIndex;
+		
 		//put together modules
 		var activeModules = [];
 		if (doUseVolumeProcessor){
@@ -355,15 +388,6 @@
 			activeModules.push(bufferSwitch);
 			bufferSwitchIndex = activeModules.length;
 		}
-		if (doUseWaveEncoder){
-			activeModules.push(waveEncoder);
-			waveEncoderIndex = activeModules.length;
-			
-			//add to send function
-			bufferSwitch.settings.sendToModules.push(waveEncoderIndex);
-			resampler.settings.sendToModules.push(waveEncoderIndex);
-			resamplerWorker.settings.sendToModules.push(waveEncoderIndex);
-		}
 		if (doUseVadWorker){
 			activeModules.push(vadWorker);
 			vadWorkerIndex = activeModules.length;
@@ -372,6 +396,24 @@
 			bufferSwitch.settings.sendToModules.push(vadWorkerIndex);
 			resampler.settings.sendToModules.push(vadWorkerIndex);
 			resamplerWorker.settings.sendToModules.push(vadWorkerIndex);
+		}
+		if (doUseWakeWordWorker){
+			activeModules.push(porcupineWorker);
+			porcupineWorkerIndex = activeModules.length;
+			
+			//add to send function
+			bufferSwitch.settings.sendToModules.push(porcupineWorkerIndex);
+			resampler.settings.sendToModules.push(porcupineWorkerIndex);
+			resamplerWorker.settings.sendToModules.push(porcupineWorkerIndex);
+		}
+		if (doUseWaveEncoder){
+			activeModules.push(waveEncoder);
+			waveEncoderIndex = activeModules.length;
+			
+			//add to send function
+			bufferSwitch.settings.sendToModules.push(waveEncoderIndex);
+			resampler.settings.sendToModules.push(waveEncoderIndex);
+			resamplerWorker.settings.sendToModules.push(waveEncoderIndex);
 		}
 				
 		//create processor
@@ -734,6 +776,25 @@
 			document.getElementById("vadWorkerControls").style.display = "";
 		}else{
 			document.getElementById("vadWorkerControls").style.display = "none";
+		}
+	}
+	
+	var doUseWakeWordWorker = document.getElementById("useWakeWordWorker").checked;
+	var wakeWordGate = document.getElementById('wakeWordGateState');
+	var wakeWordGateOpen = false;
+	function wakeWordSetGate(state){
+		window.porcupineWorker.handle.sendToModule({gate: state});
+		//wakeWordGate.textContent = state;
+		wakeWordGate.className = state;
+		wakeWordGateOpen = (state == "open");
+		console.log("wakeWordSetGate", state);
+	}
+	function useWakeWordWorker(useIt){
+		doUseWakeWordWorker = useIt;
+		if (useIt){
+			document.getElementById("wakeWordWorkerControls").style.display = "";
+		}else{
+			document.getElementById("wakeWordWorkerControls").style.display = "none";
 		}
 	}
 	

@@ -95,16 +95,19 @@ label + input {
 	width: 0%;
 	background: #ff3355;
 }
-#waveEncoderGateState {
+#waveEncoderGateState,
+#wakeWordGateState {
 	width: 18px;
 	height: 18px;
 	background: #eee;
 	border-radius: 9px;
 }
-#waveEncoderGateState.open {
+#waveEncoderGateState.open,
+#wakeWordGateState.open {
 	background: #0f5;
 }
-#waveEncoderGateState.close {
+#waveEncoderGateState.close,
+#wakeWordGateState.close {
 	background: #000;
 	border-radius: 0;
 }
