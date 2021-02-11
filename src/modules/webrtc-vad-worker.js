@@ -1,8 +1,8 @@
 //imports
 importScripts('./shared/common.js');
 importScripts('./shared/ring-buffer.min.js');
-importScripts('./shared/webrtc-vad-interface.min.js');
-importScripts('./shared/webrtc-vad-wasm.js');
+importScripts('./webrtc-vad/webrtc-vad-interface.min.js');
+importScripts('./webrtc-vad/webrtc-vad-wasm.js');
 
 var vadModule;
 

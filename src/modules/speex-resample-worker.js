@@ -1,8 +1,8 @@
 //imports
 importScripts('./shared/common.js');
 importScripts('./shared/ring-buffer.min.js');
-importScripts('./shared/speex-resampler-interface.min.js');
-importScripts('./shared/speex-resampler-wasm.js');
+importScripts('./speex/speex-resampler-interface.min.js');
+importScripts('./speex/speex-resampler-wasm.js');
 
 var speexModule;
 

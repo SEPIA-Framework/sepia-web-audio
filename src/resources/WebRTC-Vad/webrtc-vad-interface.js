@@ -3,9 +3,9 @@ var WebRtcVoiceActivityDetector = function(options, initCallback){
 	this.vadModule = {};
 	this.options = options || {};
 	
-	var onPrint = this.options.onInfo || this.options.onPrint || console.log("VAD print", text);
-	var onError = this.options.onError || this.options.onPrintErr || console.log("VAD printErr", text);
-	var onStatus = this.options.onStatusMessage || this.options.onSetStatus || console.log("VAD setStatus", text);
+	var onPrint = this.options.onInfo || this.options.onPrint || function(text){ console.log("VAD print", text); };
+	var onError = this.options.onError || this.options.onPrintErr || function(text){ console.error("VAD printErr", text); };
+	var onStatus = this.options.onStatusMessage || this.options.onSetStatus || function(text){ console.log("VAD setStatus", text); };
 	var vadMode = (this.options.mode != undefined)? this.options.mode : 3;	//modes: 0=Quality mode, 1=Low bitrate mode, 2=Aggressive mode, 3=Very aggressive mode
 
 	WebRtcVad({
