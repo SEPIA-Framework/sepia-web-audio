@@ -111,6 +111,7 @@ function constructWorker(options) {
 	resampleQuality = (options.setup.resampleQuality != undefined)? options.setup.resampleQuality : 7;
 	emitterBufferSize = options.setup.bufferSize || inputSampleSize;
 	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
+	
 	calculateRmsVolume = (options.setup.calculateRmsVolume != undefined)? options.setup.calculateRmsVolume : true;
 	gain = options.setup.gain || 1.0;		//TODO: keep?
 	
