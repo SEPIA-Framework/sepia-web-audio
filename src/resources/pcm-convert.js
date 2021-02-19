@@ -6,7 +6,7 @@ function pcmConvert(buffer, fromPartial, toPartial, target) {
 		dtype: fromPartial.dtype || 'float32',
 		endianness: fromPartial.endianness || 'le'
 	}
-	to = {
+	var to = {
 		channels: toPartial.channels || from.channels,
 		interleaved: toPartial.interleaved || from.interleaved,
 		dtype: toPartial.dtype || from.dtype,
