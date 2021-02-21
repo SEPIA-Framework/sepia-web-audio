@@ -48,17 +48,21 @@ class RingBuffer {
    * Push a sequence of Arrays to buffer.
    *
    * @param  {array} arraySequence A sequence of Arrays.
+   * @param  {function} customTransform A function of (array, channel, index) to transform the input during push (or null).
    */
-  push(arraySequence) {
+  push(arraySequence, customTransform) {
     // The channel count of arraySequence and the length of each channel must
     // match with this buffer obejct.
 
     // Transfer data from the |arraySequence| storage to the internal buffer.
     let sourceLength = arraySequence[0].length;
+	let transform = customTransform || function(thisArray, channel, i){
+		return thisArray[channel][i];
+	}
     for (let i = 0; i < sourceLength; ++i) {
       let writeIndex = (this._writeIndex + i) % this._length;
       for (let channel = 0; channel < this._channelCount; ++channel) {
-        this._channelData[channel][writeIndex] = arraySequence[channel][i];
+        this._channelData[channel][writeIndex] = transform(arraySequence, channel, i);
       }
     }
 
@@ -78,8 +82,9 @@ class RingBuffer {
    * Pull data out of buffer and fill a given sequence of Arrays.
    *
    * @param  {array} arraySequence An array of Arrays.
+   * @param  {function} customTransform A function of (array, channel, index) to transform the output during pull (or null).
    */
-  pull(arraySequence) {
+  pull(arraySequence, customTransform) {
     // The channel count of arraySequence and the length of each channel must
     // match with this buffer obejct.
 
@@ -89,12 +94,16 @@ class RingBuffer {
     }
 
     let destinationLength = arraySequence[0].length;
+	let that = this;
+	let transform = customTransform || function(thisArray, channel, i){
+		return thisArray[channel][i];
+	}
 
     // Transfer data from the internal buffer to the |arraySequence| storage.
     for (let i = 0; i < destinationLength; ++i) {
       let readIndex = (this._readIndex + i) % this._length;
       for (let channel = 0; channel < this._channelCount; ++channel) {
-        arraySequence[channel][i] = this._channelData[channel][readIndex];
+        arraySequence[channel][i] = transform(this._channelData, channel, readIndex);
       }
     }
 
