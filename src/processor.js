@@ -652,7 +652,7 @@ if (!(typeof SepiaFW == "object")){
 		//INTERFACE
 		
 		thisProcessor.start = function(){
-			if (!isProcessing){
+			if (isInitialized && !isProcessing){
 				startFun(function(){
 					var startTime = new Date().getTime();	//TODO: is this maybe already too late?
 					setStateProcessing();

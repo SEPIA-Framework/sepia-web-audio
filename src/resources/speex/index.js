@@ -33,7 +33,12 @@ class SpeexResampler {
 		if (chunk.constructor.name.indexOf("Int16Array") != 0) {
             throw new Error("Chunk format has to be 'Int16Array'");
         }else{
-			chunk = new Uint8Array(chunk.buffer);	//TODO: I've tried to simply set 'speexModule.HEAP16' (see below) but it gives no result ...
+			chunk = new Uint8Array(chunk.buffer);	//TODO: I've tried to simply set 'speexModule.HEAP16' (see below) but it gives no result ... WHY DOES THIS WORK instead of real conversion??
+			//C interface: speex_resampler_process_int(SpeexResamplerState *st, unsigned int channel_index, const short *in, unsigned int *in_len, short *out, unsigned int *out_len)
+			/*
+			unsigned int -> HEAPU32
+			short -> HEAP16
+			*/
 		}
         // We check that we have as many chunks for each channel and that the last chunk is full (2 bytes)
         if (chunk.length % (this.channels * Uint16Array.BYTES_PER_ELEMENT) !== 0) {
@@ -54,7 +59,7 @@ class SpeexResampler {
             if (this._inBufferPtr !== -1) {
                 speexModule._free(this._inBufferPtr);
             }
-            this._inBufferPtr = speexModule._malloc(chunk.length);
+            this._inBufferPtr = speexModule._malloc(chunk.length);		//TODO: can we use Int16 and (chunk.length * chunk.BYTES_PER_ELEMENT)?
             this._inBufferSize = chunk.length;
         }
         // Resizing the output buffer in the WASM memory space to match what we need

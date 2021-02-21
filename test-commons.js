@@ -43,10 +43,11 @@ var fixedPlots = {
 		use: (document.getElementById("usePlot2")? document.getElementById("usePlot2").checked : true)
 	},
 	3: {
-		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart3'), 50, {
+		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart3'), 150, {
 			//rememberMax: true
 		}, {
-			yRange: [-0.1, 1.1]
+			showAxisX: false
+			//yRange: [-0.1, 1.1]
 		})),
 		use: (document.getElementById("usePlot3")? document.getElementById("usePlot3").checked : true)
 	},
@@ -74,11 +75,15 @@ function addChartContainerToPage(){
 	(document.getElementById("mainView") || document.body).appendChild(ele);
 	return ele;
 }
-function plotData(data, plotIndex){
+function plotData(data, plotIndex, expandData){
 	var p = fixedPlots[plotIndex];
 	if (p){
 		if (p.use){
-			p.graph.addValues(data);
+			if (expandData){
+				p.graph.addValues(...data);
+			}else{
+				p.graph.addValues(data);
+			}
 			p.graph.draw();
 		}
 	}else{

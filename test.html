@@ -84,7 +84,7 @@
 	</div>
 	<div id="vadWorkerControls" class="contorlGroup">
 		<label><b>VAD</b></label>
-		<label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="960" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);">
+		<label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="512" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);">
 		<label>Mode:</label><input id="vadWorkerVadMode" class="small" value="3" placeholder="1-3 (3: agressive)" onchange="setVadWorkerVadMode(+this.value);">
 	</div>
 	<div id="wakeWordWorkerControls" class="contorlGroup">
@@ -327,7 +327,7 @@
 		var waveEncoderIndex;
 		
 		var vadWorker = {
-			name: 'webrtc-vad-worker',
+			name: 'sepia-vad-worker', //'webrtc-vad-worker',
 			type: 'worker',
 			settings: {
 				onmessage: setVoiceActivity,
@@ -595,7 +595,9 @@
 	}
 	function setVoiceActivity(data){
 		//console.log("vad", data);
-		if (data.voiceActivity != undefined){
+		if (data.voiceLoudness != undefined && data.voiceLoudness.length == 1){
+			plotData([[data.voiceLoudness[0]/data.movingAvgLoudness], 1, [data.maxLoudness/data.movingAvgLoudness]], 3, true);	//[data.movingAvgLoudness]
+		}else if (data.voiceActivity != undefined){
 			plotData(data.voiceActivity, 3);
 		}
 		if (data.voiceEnergy != undefined){
