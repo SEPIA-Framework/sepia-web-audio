@@ -128,11 +128,13 @@
 		<label>Plot 2:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);">
 		<label>Plot 3:</label><input type="checkbox" id="usePlot3" onchange="usePlot(3, this);">
 		<label>Plot 4:</label><input type="checkbox" id="usePlot4" checked onchange="usePlot(4, this);">
+		<label>Heatmap 1:</label><input type="checkbox" id="useHeatmap1" onchange="useHeatmap(1, this);">
 	</div>
 	<div id="chart1" class="chart"></div>
 	<div id="chart2" class="chart"></div>
 	<div id="chart3" class="chart" style="display: none;"></div>
 	<div id="chart4" class="chart"></div>
+	<div id="heatmap1" class="chart"></div>
 </div>
 <script type='text/javascript' src="test-commons.js"></script>
 <script type='text/javascript'>
@@ -622,7 +624,25 @@
 				waveEncoderSetGate('close');
 			}
 		}
+		if (useHeatmaps[1] && data.mfcc != undefined){
+			if (!heatmap1){
+				let colorIndex = 4;
+				heatmap1 = new uPlot.lazy.Heatmap(document.getElementById("heatmap1"), {
+					dataPixelWidth: 4,
+					dataPixelHeight: 4,
+					colorIndex: colorIndex,
+					maxDataPoints: 150
+				});
+				heatmaps[1] = heatmap1;
+			}
+			data.mfcc.forEach(function(d, i){
+				heatmap1.addDataArray(d);
+			});
+			heatmap1.draw();
+		}
 	}
+	var heatmap1;
+	
 	var vadAutoActivate = true;
 	var vadAutoActivateSequenceWasTrigger = false;
 	var vadMinRecordTimeAfterActivate = 3000;

@@ -68,6 +68,12 @@ function usePlot(index, ele){
 		if (container) container.style.display = p.use? "" : "none";
 	}
 }
+function useHeatmap(index, ele){
+	useHeatmaps[index] = ele.checked;
+	if (heatmaps[index]) heatmaps[index].resetMax();
+}
+var useHeatmaps = {};
+var heatmaps = {};
 
 function addChartContainerToPage(){
 	var ele = document.createElement("div");

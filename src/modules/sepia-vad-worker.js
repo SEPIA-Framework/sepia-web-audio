@@ -328,6 +328,7 @@ function process(data) {
 		//Process if we have enough frames
 		var vadResults = [];
 		var loudnessResults = [];
+		var mfcc = [];
 		while (_processRingBuffer.framesAvailable >= _vadBufferSize) {
 			//pull samples
 			_processRingBuffer.pull(_vadBuffer);
@@ -342,6 +343,8 @@ function process(data) {
 			let loudness = features.loudness.specific.slice(1, 5).reduce(function(a, b){ return a + b; });
 			_maxLoudness = Math.max(_maxLoudness, loudness);
 			_movingAvgLoudness = getWeightedMovingAverage(_movingAvgLoudness, loudness, _movingAvgLoudnessWeight);
+			
+			mfcc.push(features.mfcc);
 			
 			//activity check
 			var voiceActivity = (loudness/_movingAvgLoudness) > (1 + vadMode/10)? 1 : 0;
@@ -367,6 +370,7 @@ function process(data) {
 				voiceActivity: vadResults,
 				voiceEnergy: voiceEnergy,
 				voiceLoudness: loudnessResults,
+				mfcc: mfcc,
 				movingAvgLoudness: _movingAvgLoudness,
 				maxLoudness: _maxLoudness
 			});
@@ -387,8 +391,6 @@ function start(options) {
 function stop(options) {
 	//TODO: anything to do?
 	//NOTE: timing of this signal is not very well defined
-	_movingAvgLoudness = undefined;
-	_maxLoudness = 0;
 }
 function reset(options) {
     //TODO: clean up worker and prep. for restart
@@ -399,6 +401,8 @@ function release(options){
 	_processRingBuffer = null;
 	_vadBuffer = null;
 	_previousVadBuffer = null;
+	_movingAvgLoudness = undefined;
+	_maxLoudness = 0;
 }
 
 //--- helpers ---
