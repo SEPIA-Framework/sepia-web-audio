@@ -54,13 +54,16 @@ let _vadFrames;				//each frame processes one chunk of '_vadBufferSize' as long 
 let _vadFrameTimeMs;		//real time (ms) of one vadFrame (defined by sample-rate and buffer size)
 let _vadBufferSize;			//size of a single vadFrame (restrictions apply)
 let _vadBuffer;
-let _previousVadBuffer;
+//let _previousVadBuffer;
 let _transferFun;
 
 //parameters to calculate vad
-let _movingAvgLoudness;
-let _maxLoudness = 0;
+let movingAvgLoudness;
+let maxLoudness = 0;
 let _movingAvgLoudnessWeight = 800;		//TODO: make variable and normalize with sample-rate
+let _vadThreshold;
+let _warmUpFrames;
+let _totalFrames;
 
 //sequence control
 let useSequenceAnalyzer = false;
@@ -69,11 +72,17 @@ let voiceResetTime;
 let silenceActivationTime;
 let maxSequenceTime;
 let minSequenceTime;
+let sequenceTimeForTrigger = 1100;		//TODO: make variable
+let mfccSequenceStartBuffer;
+let loudnessSequenceStartBuffer;
+let feature1SequenceStartBuffer;
+let feature2SequenceStartBuffer;
+let feature3SequenceStartBuffer;
 
 let _sequenceVoiceTime;
 let _sequenceSilenceTime;
 let _sequenceSawVoice, _sequenceSawSilenceAfterVoice, _sequenceFinishedVoice;
-let _sequenceIsActive, _sequenceIsDone, _sequenceStartedAt;
+let _sequenceIsActive, _sequenceIsDone, _sequenceStartedAt, _sequenceCheckedTrigger;
 
 let _isFirstValidProcess;
 
@@ -86,7 +95,7 @@ function init(){
 	if (inputSampleRate < 8000 || inputSampleRate > 48000){
 		throw JSON.stringify(new SampleRateException("For this module sample-rate has to be between 8000 and 48000 Hz."));
 	}
-	var allowedBufferSizes = [8192, 4096, 2048, 1024, 512, 256, 128];		//recommended: 10-30ms frame length, e.g. 256/16000 = 16ms
+	var allowedBufferSizes = [8192, 4096, 2048, 1024, 512, 256, 128];		//recommended: 10-30ms frame length, e.g. 512/16000 = 32ms (recommended)
 	_vadBufferSize = 0;
 	for (let i=0; i<allowedBufferSizes.length; i++){
 		if (processBufferSize == allowedBufferSizes[i] || processBufferSize % allowedBufferSizes[i] == 0){
@@ -107,7 +116,7 @@ function init(){
 	var ringBufferSize = processBufferSize + inputSampleSize;		//TODO: check size again
 	_processRingBuffer = new RingBuffer(ringBufferSize, channelCount, "Float32");
 	_vadBuffer = [new Float32Array(_vadBufferSize)];
-	_previousVadBuffer = [new Float32Array(_vadBufferSize)];
+	//_previousVadBuffer = [new Float32Array(_vadBufferSize)];
 	if (isFloat32Input){
 		//we need flot32 for Meyda so this is all good
 		_transferFun = function(thisArray, channel, i){
@@ -118,6 +127,19 @@ function init(){
 		_transferFun = function(thisArray, channel, i){
 			return CommonConverters.singleSampleInt16ToFloat32BitAudio(thisArray[channel][i]);
 		}
+	}
+	
+	movingAvgLoudness = undefined;
+	maxLoudness = 0;
+	
+	if (useSequenceAnalyzer){
+		//Buffer the start of a sequence to analyze for keywords/trigger/wake-words etc.
+		let sequenceStartFrames = Math.round((sequenceTimeForTrigger + 1000)/1000 * (inputSampleRate/inputSampleSize));		//TODO: why is this almost 2 times more than expected?
+		mfccSequenceStartBuffer = ArrayOps.newCommon2dArray(sequenceStartFrames, Meyda.numberOfMFCCCoefficients, 0);
+		loudnessSequenceStartBuffer = ArrayOps.newCommon1dArray(sequenceStartFrames, 0);
+		feature1SequenceStartBuffer = ArrayOps.newCommon1dArray(sequenceStartFrames, 0);
+		feature2SequenceStartBuffer = ArrayOps.newCommon1dArray(sequenceStartFrames, 0);
+		feature3SequenceStartBuffer = ArrayOps.newCommon1dArray(sequenceStartFrames, 0);
 	}
 	
 	resetSequence();
@@ -150,6 +172,10 @@ function constructWorker(options) {
 	inputSampleSize = options.setup.inputSampleSize || 512;
 	processBufferSize = options.setup.bufferSize || inputSampleSize;
 	vadMode = (options.setup.vadMode != undefined)? options.setup.vadMode : 3;
+	_vadThreshold = (1 + vadMode/10);
+	_warmUpFrames = Math.round(2*inputSampleRate/inputSampleSize);		//input- or processBufferSize? We want ~2s so input makes sense
+	_totalFrames = 0;
+	
 	isFloat32Input = (options.setup.isFloat32 != undefined)? options.setup.isFloat32 : false;
 	
 	if (options.setup.voiceEnergyCap != undefined) voiceEnergyCap = options.setup.voiceEnergyCap;
@@ -161,6 +187,7 @@ function constructWorker(options) {
 		silenceActivationTime = options.setup.sequence.silenceActivationTime || 250;
 		maxSequenceTime = options.setup.sequence.maxSequenceTime || 6000;
 		minSequenceTime = options.setup.sequence.minSequenceTime || 600;
+		//TODO: add sequenceTimeForTrigger
 	}else{
 		useSequenceAnalyzer = false;
 	}
@@ -170,7 +197,7 @@ function constructWorker(options) {
 	Meyda.numberOfMFCCCoefficients = 13;
 	Meyda.windowingFunction = "hanning";	//"hamming"
 	var meydaRequiredFeatures = ["mfcc", "loudness"];		
-	//https://meyda.js.org/audio-features.html: "spectralCentroid", "spectralFlatness", "spectralFlux" (requires previous spec.)
+	//https://meyda.js.org/audio-features.html: "spectralCentroid", "spectralFlatness", "spectralFlux" (requires previous spec. but is buggy!?)
 	var meydaAnalyzer = options.setup.meydaAnalyzer || {};
 	var meydaFeatures = [];
 	var meydaSettingsKeys = Object.keys(meydaAnalyzer);
@@ -207,11 +234,11 @@ function constructWorker(options) {
 
 //averages
 function getWeightedMovingAverage(prevAvg, nextValue, weight){
-	if (prevAvg == undefined){
-		return nextValue;
-	}else{
+	//if (prevAvg == undefined){
+	//	return nextValue;
+	//}else{
 		return (prevAvg + (nextValue - prevAvg)/weight);
-	}
+	//}
 } 
 
 //sequence block
@@ -250,15 +277,49 @@ function sequenceDetector(voiceActivity){
 		registerEvent(3, 'finished_voice');
 
 	}else if (_sequenceSawVoice){
-		if (_sequenceIsActive && ((Date.now() - _sequenceStartedAt) > maxSequenceTime)) {
-			_sequenceIsDone = true;
-			registerEvent(4, 'finished_voice_maxtime');
+		if (_sequenceIsActive){
+			let timePassed = (Date.now() - _sequenceStartedAt);
+			if (timePassed > maxSequenceTime){
+				_sequenceIsDone = true;
+				registerEvent(4, 'finished_voice_maxtime');
+			}else if (!_sequenceCheckedTrigger && timePassed >= sequenceTimeForTrigger){
+				sequenceTriggerAnalyzer();
+				_sequenceCheckedTrigger = true;
+				registerEvent(6, 'sequence_trigger_result');
+			}
 		}
 	}
 		
 	if (_sequenceIsDone){
 		if (_sequenceIsActive) registerEvent(5, 'sequence_complete');
 		resetSequence();
+	}
+}
+function sequenceTriggerAnalyzer(){
+	//TODO
+	var sqVoiceActivity = feature1SequenceStartBuffer;
+	var sqVoiceEnergy = feature2SequenceStartBuffer;
+	var rangeStart = 0;
+	var rangeEnd = sqVoiceEnergy.length;
+	//find largest activity block - TODO: not good enough, 0 is possible (try 'hey computer')
+	var bestRange = {start: 0, end: 0, range: 0};
+	var nextRange = {start: 0, end: 0, range: 0};
+	for (let i=0; i<sqVoiceEnergy.length; i++){
+		if (nextRange.range == 0 && sqVoiceEnergy[i] > 0){
+			nextRange.start = i;
+			nextRange.range++;
+		}else if (sqVoiceEnergy[i] > 0){
+			nextRange.range++;
+		}else{
+			nextRange.end = i;
+			if (nextRange.range > bestRange.range){
+				bestRange = nextRange;
+				nextRange = {start: 0, end: 0, range: 0};
+			}
+		}
+	}
+	if (bestRange.range){
+		//var reducedMfccBuffer = mfccSequenceStartBuffer.slice(bestRange.start, bestRange.end);
 	}
 }
 function resetSequence(){
@@ -272,6 +333,7 @@ function resetSequence(){
 	_sequenceIsActive = false;
 	_sequenceStartedAt = 0;
 	_sequenceIsDone = false;
+	_sequenceCheckedTrigger = false;
 }
 function registerEvent(code, msg, data){
 	var msg = {
@@ -287,6 +349,13 @@ function registerEvent(code, msg, data){
 			msg.vadSequenceStarted = _sequenceStartedAt;
 			msg.vadSequenceEnded = Date.now();
 			break;
+		case 6:
+			//sequence trigger-check phase data
+			msg.vadSequenceStarted = _sequenceStartedAt;
+			msg.mfccProfile = mfccSequenceStartBuffer;
+			msg.loudnessProfile = loudnessSequenceStartBuffer;
+			msg.featuresArray = [feature1SequenceStartBuffer, feature2SequenceStartBuffer, feature3SequenceStartBuffer];
+			msg.avgLoudness = movingAvgLoudness;
 		default:
 			break;
 	}
@@ -301,6 +370,7 @@ function process(data) {
 		//Use 1st input and output only
 		let input = data.samples;
 		let thisInputSampleSize = input[0].length;
+		_totalFrames++;
 		
 		if (_isFirstValidProcess){
 			_isFirstValidProcess = false;
@@ -326,30 +396,41 @@ function process(data) {
 		_processRingBuffer.push(input, _transferFun);
 		
 		//Process if we have enough frames
-		var vadResults = [];
-		var loudnessResults = [];
-		var mfcc = [];
+		let vadFramesAvailable = Math.floor(_processRingBuffer.framesAvailable/_vadBufferSize);
+		let vadResults = new Array(vadFramesAvailable);
+		let loudnessResults = new Array(vadFramesAvailable);
+		let mfcc = new Array(vadFramesAvailable);
+		//let moreFeatures = new Array(vadFramesAvailable);
+		let n = 0;
 		while (_processRingBuffer.framesAvailable >= _vadBufferSize) {
 			//pull samples
 			_processRingBuffer.pull(_vadBuffer);
 			
 			//Meyda features
-			let features = Meyda.extract(Meyda.features, _vadBuffer[0], _previousVadBuffer[0]);
+			let features = Meyda.extract(Meyda.features, _vadBuffer[0]);	//we don't add '_previousVadBuffer[0]' because it saves time and 'spectralFlux' is buggy
 			//console.log("features_meyda", features);
-			_previousVadBuffer = _vadBuffer;
 			
 			//let loudness = (features.loudness.specific[1] + features.loudness.specific[2] + features.loudness.specific[3]); //'specific' shows each loudness on bark scale, 'total' is the sum
 			//let loudness = features.loudness.total;
 			let loudness = features.loudness.specific.slice(1, 5).reduce(function(a, b){ return a + b; });
-			_maxLoudness = Math.max(_maxLoudness, loudness);
-			_movingAvgLoudness = getWeightedMovingAverage(_movingAvgLoudness, loudness, _movingAvgLoudnessWeight);
+			maxLoudness = Math.max(maxLoudness, loudness);
+			if (movingAvgLoudness == undefined){
+				movingAvgLoudness = loudness * _vadThreshold;
+			}
+			if (_totalFrames < _warmUpFrames){
+				movingAvgLoudness = getWeightedMovingAverage(movingAvgLoudness, loudness, 10);
+			}else{
+				movingAvgLoudness = getWeightedMovingAverage(movingAvgLoudness, loudness, _movingAvgLoudnessWeight);
+			}
 			
-			mfcc.push(features.mfcc);
+			mfcc[n] = features.mfcc;
 			
 			//activity check
-			var voiceActivity = (loudness/_movingAvgLoudness) > (1 + vadMode/10)? 1 : 0;
-			vadResults.push(voiceActivity);
-			loudnessResults.push(loudness);
+			let loudnessNorm = (loudness/movingAvgLoudness);
+			let voiceActivity = loudnessNorm > _vadThreshold? 1 : 0;
+			vadResults[n] = voiceActivity;
+			loudnessResults[n] = loudness;
+			//moreFeatures[n] = [];
 			
 			//voice energy and sequence check
 			if (voiceActivity){
@@ -360,19 +441,25 @@ function process(data) {
 				if (voiceEnergy < 0) voiceEnergy = 0;
 			}
 			if (useSequenceAnalyzer){
+				ArrayOps.pushAndShift(mfccSequenceStartBuffer, features.mfcc);
+				ArrayOps.pushAndShift(loudnessSequenceStartBuffer, (loudnessNorm > 1)? (loudnessNorm-1) : 0);	//loudness
+				ArrayOps.pushAndShift(feature1SequenceStartBuffer, voiceActivity);
+				ArrayOps.pushAndShift(feature2SequenceStartBuffer, voiceEnergy);
+				ArrayOps.pushAndShift(feature3SequenceStartBuffer, 0);
 				sequenceDetector(voiceActivity);
 			}
+			n++;
 		}
-		if (vadResults.length > 0){
+		if (n > 0){
 			//Send info
-			//console.log("features", vadResults, loudnessResults, _movingAvgLoudness, _maxLoudness);
+			//console.log("features", vadResults, loudnessResults, movingAvgLoudness, maxLoudness);
 			postMessage({
 				voiceActivity: vadResults,
 				voiceEnergy: voiceEnergy,
 				voiceLoudness: loudnessResults,
 				mfcc: mfcc,
-				movingAvgLoudness: _movingAvgLoudness,
-				maxLoudness: _maxLoudness
+				movingAvgLoudness: movingAvgLoudness,
+				maxLoudness: maxLoudness
 			});
 		}
 	}
@@ -400,9 +487,13 @@ function release(options){
 	//destroy
 	_processRingBuffer = null;
 	_vadBuffer = null;
-	_previousVadBuffer = null;
-	_movingAvgLoudness = undefined;
-	_maxLoudness = 0;
+	//_previousVadBuffer = null;
+	_totalFrames = 0;
+	mfccSequenceStartBuffer = null;
+	loudnessSequenceStartBuffer = null;
+	feature1SequenceStartBuffer = null;
+	feature2SequenceStartBuffer = null;
+	feature3SequenceStartBuffer = null;
 }
 
 //--- helpers ---

@@ -21,6 +21,38 @@ function ChannelCountException(message){
 	this.name = "ChannelCountException";
 }
 
+//Array operations
+
+var ArrayOps = {};
+
+ArrayOps.newCommon1dArray = function(n, startValue){
+	if (startValue == undefined) startValue = 0;
+	var array = new Array(n);
+	for (let i=0; i<n; i++){
+		array[i] = startValue;
+	}
+	return array;
+}
+ArrayOps.newCommon2dArray = function(n, m, startValue){
+	if (startValue == undefined) startValue = 0;
+	var array = new Array(n);
+	for (let i=0; i<n; i++){
+		array[i] = new Array(m);
+		for (let j=0; j<m; j++){
+			array[i][j] = startValue;
+		}
+	}
+	return array;
+}
+ArrayOps.pushAndShift = function(array, pushValue){
+	//NOTE: this operation does not need to allocate memory compared to shift().push()
+	for (let i=0; i<(array.length - 1); i++){
+		array[i] = array[i+1];
+    }
+	array[array.length - 1] = pushValue;
+	return array;
+};
+
 //Converters
 
 var CommonConverters = {};

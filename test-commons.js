@@ -73,8 +73,26 @@ function useHeatmap(index, ele){
 	if (heatmaps[index]) heatmaps[index].resetMax();
 }
 var useHeatmaps = {};
-var heatmaps = {};
+var heatmaps = {
+	1: new uPlot.lazy.Heatmap(document.getElementById('heatmap1'), {
+		dataPixelWidth: 4,
+		dataPixelHeight: 4,
+		colorIndex: 4,
+		maxDataPoints: 150
+	})
+};
+usePlot(1, document.getElementById('usePlot1'));
+usePlot(2, document.getElementById('usePlot2'));
+usePlot(3, document.getElementById('usePlot3'));
+usePlot(4, document.getElementById('usePlot4'));
+useHeatmap(1, document.getElementById('useHeatmap1'));
 
+function addTitleToPage(titleText){
+	var ele = document.createElement("p");
+	ele.textContent = titleText;
+	(document.getElementById("mainView") || document.body).appendChild(ele);
+	return ele;
+}
 function addChartContainerToPage(){
 	var ele = document.createElement("div");
 	ele.className = "chart";
@@ -82,7 +100,7 @@ function addChartContainerToPage(){
 	return ele;
 }
 function plotData(data, plotIndex, expandData){
-	var p = fixedPlots[plotIndex];
+	var p = (plotIndex != undefined)? fixedPlots[plotIndex] : undefined;
 	if (p){
 		if (p.use){
 			if (expandData){
@@ -102,4 +120,22 @@ function plotData(data, plotIndex, expandData){
 			data: [x, data]
 		});
 	}
+}
+function drawHeatmap(data, hmIndex, maxPoints){
+	var heatmap = (hmIndex != undefined)? heatmaps[hmIndex] : undefined;
+	if (!heatmap){
+		var ele = addChartContainerToPage();
+		let colorIndex = 4;
+		heatmap = new uPlot.lazy.Heatmap(ele, {
+			dataPixelWidth: 4,
+			dataPixelHeight: 4,
+			colorIndex: colorIndex,
+			maxDataPoints: maxPoints || 150
+		});
+		if (hmIndex != undefined) heatmaps[hmIndex] = heatmap;
+	}
+	data.forEach(function(d, i){
+		heatmap.addDataArray(d);
+	});
+	heatmap.draw();
 }
