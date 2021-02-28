@@ -42,10 +42,16 @@ let channelCount;
 let inputSampleSize;
 let processBufferSize;	//defines '_processRingBuffer' size together with 'inputSampleSize'
 let vadMode;
+let vadThreshold;
+let vadDefaultThresholds = {
+	1: 1.5,
+	2: 3.5,
+	3: 3.5
+}
 let isFloat32Input;		//default false
 
 let voiceEnergy;
-let voiceEnergyCap = 50;
+let voiceEnergyCap = 42;
 let voiceEnergyDropRate = 2;
 let _samplesToTimeMsFactor;
 
@@ -60,8 +66,9 @@ let _transferFun;
 //parameters to calculate vad
 let movingAvgLoudness;
 let maxLoudness = 0;
-let _movingAvgLoudnessWeight = 800;		//TODO: make variable and normalize with sample-rate
-let _vadThreshold;
+let _movingAvgLoudnessWeight = 400;		//TODO: make variable and normalize with sample-rate
+let _mfccDynamicWeightsArray;
+let _mfccLastArray;
 let _warmUpFrames;
 let _totalFrames;
 
@@ -98,15 +105,22 @@ function init(){
 	var allowedBufferSizes = [8192, 4096, 2048, 1024, 512, 256, 128];		//recommended: 10-30ms frame length, e.g. 512/16000 = 32ms (recommended)
 	_vadBufferSize = 0;
 	for (let i=0; i<allowedBufferSizes.length; i++){
-		if (processBufferSize == allowedBufferSizes[i] || processBufferSize % allowedBufferSizes[i] == 0){
-			_vadFrames = processBufferSize / allowedBufferSizes[i];
-			_vadBufferSize = allowedBufferSizes[i];
-			break;
+		//common cases
+		if (inputSampleRate == 16000 && processBufferSize >= 512){
+			_vadBufferSize = 512;
+			
+		//best fallback
+		}else{
+			if (processBufferSize == allowedBufferSizes[i] || processBufferSize % allowedBufferSizes[i] == 0){
+				_vadBufferSize = allowedBufferSizes[i];
+				break;
+			}
 		}
 	}
 	if (_vadBufferSize == 0){
 		throw JSON.stringify(new BufferSizeException("The 'bufferSize' has to be equal or a multiple of: " + allowedBufferSizes.join(", ")));
 	}else{
+		_vadFrames = processBufferSize / _vadBufferSize;
 		_samplesToTimeMsFactor = 1000/inputSampleRate;
 		_vadFrameTimeMs = Math.round(_vadBufferSize * _samplesToTimeMsFactor);
 		if (_vadFrameTimeMs < 5 || _vadFrameTimeMs > 86){
@@ -129,12 +143,21 @@ function init(){
 		}
 	}
 	
+	//Meyda requirements (2)
+	Meyda.sampleRate = inputSampleRate;
+	Meyda.bufferSize = _vadBufferSize;
+	if (!Meyda.bufferSize || (Meyda.bufferSize & (Meyda.bufferSize -1) != 0)){
+		throw JSON.stringify({name: "VadModuleMeydaError", message: "Meyda buffer-size must be power of 2, e.g. 128, 256, 512, 1024, ..."});
+	}
+	
 	movingAvgLoudness = undefined;
 	maxLoudness = 0;
+	_mfccDynamicWeightsArray = ArrayOps.newCommon1dArray(Meyda.numberOfMFCCCoefficients, 1);
+	_mfccLastArray = ArrayOps.newCommon1dArray(Meyda.numberOfMFCCCoefficients, 0);
 	
 	if (useSequenceAnalyzer){
 		//Buffer the start of a sequence to analyze for keywords/trigger/wake-words etc.
-		let sequenceStartFrames = Math.round((sequenceTimeForTrigger + 1000)/1000 * (inputSampleRate/inputSampleSize));		//TODO: why is this almost 2 times more than expected?
+		let sequenceStartFrames = Math.round((sequenceTimeForTrigger + 1000)/1000 * (inputSampleRate/_vadBufferSize));		//TODO: why is this almost 2 times more than expected?
 		mfccSequenceStartBuffer = ArrayOps.newCommon2dArray(sequenceStartFrames, Meyda.numberOfMFCCCoefficients, 0);
 		loudnessSequenceStartBuffer = ArrayOps.newCommon1dArray(sequenceStartFrames, 0);
 		feature1SequenceStartBuffer = ArrayOps.newCommon1dArray(sequenceStartFrames, 0);
@@ -156,6 +179,7 @@ function ready(){
 			inputIsFloat32: isFloat32Input,
 			processBufferSize: processBufferSize,
 			vadMode: vadMode,
+			vadThreshold: vadThreshold,
 			vadFramesMax: _vadFrames,
 			vadBufferSize: _vadBufferSize,
 			vadFrameTimeMs: _vadFrameTimeMs,
@@ -171,8 +195,8 @@ function constructWorker(options) {
 	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
 	inputSampleSize = options.setup.inputSampleSize || 512;
 	processBufferSize = options.setup.bufferSize || inputSampleSize;
-	vadMode = (options.setup.vadMode != undefined)? options.setup.vadMode : 3;
-	_vadThreshold = (1 + vadMode/10);
+	vadMode = options.setup.vadMode || 3;
+	vadThreshold = options.setup.vadThreshold || vadDefaultThresholds[vadMode] || 3;
 	_warmUpFrames = Math.round(2*inputSampleRate/inputSampleSize);		//input- or processBufferSize? We want ~2s so input makes sense
 	_totalFrames = 0;
 	
@@ -193,8 +217,8 @@ function constructWorker(options) {
 	}
 	
 	//Meyda options and defaults
-	Meyda.melBands = 26;
-	Meyda.numberOfMFCCCoefficients = 13;
+	Meyda.melBands = 40; //40 26;
+	Meyda.numberOfMFCCCoefficients = 20; //13;
 	Meyda.windowingFunction = "hanning";	//"hamming"
 	var meydaRequiredFeatures = ["mfcc", "loudness"];		
 	//https://meyda.js.org/audio-features.html: "spectralCentroid", "spectralFlatness", "spectralFlux" (requires previous spec. but is buggy!?)
@@ -211,12 +235,7 @@ function constructWorker(options) {
 			}
 		});
 	}
-	//Meyda requirements
-	Meyda.sampleRate = inputSampleRate;
-	Meyda.bufferSize = inputSampleSize;
-	if (!Meyda.bufferSize || (Meyda.bufferSize & (Meyda.bufferSize -1) != 0)){
-		throw {name: "VadModuleMeydaError", message: "Meyda buffer-size must be power of 2, e.g. 128, 256, 512, 1024, ..."};
-	}
+	//Meyda requirements (1)
 	if (!meydaFeatures){
 		Meyda.features = meydaRequiredFeatures;
 	}else{
@@ -335,11 +354,11 @@ function resetSequence(){
 	_sequenceIsDone = false;
 	_sequenceCheckedTrigger = false;
 }
-function registerEvent(code, msg, data){
+function registerEvent(code, _msg, data){
 	var msg = {
 		vadSequenceCode: code,
-		vadSequenceMsg: msg
-	};
+		vadSequenceMsg: _msg
+	}
 	switch (code){
 		//case 1: voice start
 		//case 2: sequence start
@@ -361,6 +380,27 @@ function registerEvent(code, msg, data){
 	}
 	//Send info
 	postMessage(msg);
+}
+
+//classify voice activity
+function getVoiceActivity(mfccArray, loudnessNorm, averageLoudness){
+	if (vadMode == 3){
+		var sum = 0;
+		for (let i=0; i<mfccArray.length; i++){
+			let change = Math.abs(mfccArray[i]/_mfccLastArray[i] - 1);
+			if (change < 0.20){
+				_mfccDynamicWeightsArray[i] = _mfccDynamicWeightsArray[i] * 0.66;
+			}else{
+				_mfccDynamicWeightsArray[i] = 1.0; //Math.min(1.0, _mfccDynamicWeightsArray[i] + 0.75);
+			}
+			_mfccLastArray[i] = mfccArray[i];
+			sum += Math.abs(mfccArray[i] * _mfccDynamicWeightsArray[i]);
+		}
+		var signal = sum/mfccArray.length - averageLoudness;
+		return (signal > vadThreshold? 1 : 0);		
+	}else{
+		return (loudnessNorm > vadThreshold? 1 : 0);
+	}
 }
 
 function process(data) {
@@ -402,7 +442,7 @@ function process(data) {
 		let mfcc = new Array(vadFramesAvailable);
 		//let moreFeatures = new Array(vadFramesAvailable);
 		let n = 0;
-		while (_processRingBuffer.framesAvailable >= _vadBufferSize) {
+		while (_processRingBuffer.framesAvailable >= _vadBufferSize){
 			//pull samples
 			_processRingBuffer.pull(_vadBuffer);
 			
@@ -410,12 +450,17 @@ function process(data) {
 			let features = Meyda.extract(Meyda.features, _vadBuffer[0]);	//we don't add '_previousVadBuffer[0]' because it saves time and 'spectralFlux' is buggy
 			//console.log("features_meyda", features);
 			
-			//let loudness = (features.loudness.specific[1] + features.loudness.specific[2] + features.loudness.specific[3]); //'specific' shows each loudness on bark scale, 'total' is the sum
-			//let loudness = features.loudness.total;
-			let loudness = features.loudness.specific.slice(1, 5).reduce(function(a, b){ return a + b; });
+			let loudness;
+			//loudness = (features.loudness.specific[1] + features.loudness.specific[2] + features.loudness.specific[3]); //'specific' shows each loudness on bark scale, 'total' is the sum
+			//loudness = features.loudness.total;
+			if (vadMode == 1){
+				loudness = features.loudness.specific.slice(1, 5).reduce(function(a, b){ return a + b; });		//1-5 on the bark scale
+			}else{
+				loudness = features.mfcc.reduce(function(a, c){ return (a + Math.abs(c)); })/features.mfcc.length;	//avg(...abs(MFCC[i]))
+			}
 			maxLoudness = Math.max(maxLoudness, loudness);
 			if (movingAvgLoudness == undefined){
-				movingAvgLoudness = loudness * _vadThreshold;
+				movingAvgLoudness = loudness * vadThreshold;
 			}
 			if (_totalFrames < _warmUpFrames){
 				movingAvgLoudness = getWeightedMovingAverage(movingAvgLoudness, loudness, 10);
@@ -423,13 +468,12 @@ function process(data) {
 				movingAvgLoudness = getWeightedMovingAverage(movingAvgLoudness, loudness, _movingAvgLoudnessWeight);
 			}
 			
-			mfcc[n] = features.mfcc;
-			
 			//activity check
-			let loudnessNorm = (loudness/movingAvgLoudness);
-			let voiceActivity = loudnessNorm > _vadThreshold? 1 : 0;
+			let loudnessNorm = (loudness - movingAvgLoudness);
+			let voiceActivity = getVoiceActivity(features.mfcc, loudnessNorm, movingAvgLoudness);
 			vadResults[n] = voiceActivity;
 			loudnessResults[n] = loudness;
+			mfcc[n] = features.mfcc;
 			//moreFeatures[n] = [];
 			
 			//voice energy and sequence check
@@ -442,10 +486,10 @@ function process(data) {
 			}
 			if (useSequenceAnalyzer){
 				ArrayOps.pushAndShift(mfccSequenceStartBuffer, features.mfcc);
-				ArrayOps.pushAndShift(loudnessSequenceStartBuffer, (loudnessNorm > 1)? (loudnessNorm-1) : 0);	//loudness
+				ArrayOps.pushAndShift(loudnessSequenceStartBuffer, loudnessNorm); //(loudnessNorm > 1)? (loudnessNorm-1) : 0);	//loudness
 				ArrayOps.pushAndShift(feature1SequenceStartBuffer, voiceActivity);
 				ArrayOps.pushAndShift(feature2SequenceStartBuffer, voiceEnergy);
-				ArrayOps.pushAndShift(feature3SequenceStartBuffer, 0);
+				ArrayOps.pushAndShift(feature3SequenceStartBuffer, features.loudness.specific);
 				sequenceDetector(voiceActivity);
 			}
 			n++;
@@ -490,6 +534,7 @@ function release(options){
 	//_previousVadBuffer = null;
 	_totalFrames = 0;
 	mfccSequenceStartBuffer = null;
+	_mfccDynamicWeightsArray = null;
 	loudnessSequenceStartBuffer = null;
 	feature1SequenceStartBuffer = null;
 	feature2SequenceStartBuffer = null;

@@ -112,13 +112,19 @@ function plotData(data, plotIndex, expandData){
 		}
 	}else{
 		var ele = addChartContainerToPage();
-		var x = uPlot.lazy.createSequence(0, data.length);
-		uPlot.lazy.plot({
+		var conf = {
 			targetElement: ele,
 			showPoints: false,
-			strokeWidth: 1,
-			data: [x, data]
-		});
+			strokeWidth: 1
+		}
+		if (expandData){
+			var x = uPlot.lazy.createSequence(0, data[0].length);
+			conf.data = [x, ...data];
+		}else{
+			var x = uPlot.lazy.createSequence(0, data.length);
+			conf.data = [x, data];
+		}
+		uPlot.lazy.plot(conf);
 	}
 }
 function drawHeatmap(data, hmIndex, maxPoints){
@@ -138,4 +144,12 @@ function drawHeatmap(data, hmIndex, maxPoints){
 		heatmap.addDataArray(d);
 	});
 	heatmap.draw();
+}
+function createArrayWithStartValue(n, startValue){
+	if (startValue == undefined) startValue = 0;
+	var array = new Array(n);
+	for (let i=0; i<n; i++){
+		array[i] = startValue;
+	}
+	return array;
 }
