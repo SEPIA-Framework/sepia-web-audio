@@ -362,7 +362,7 @@
 			name: 'porcupine-wake-word-worker',
 			type: 'worker',
 			preLoad: {
-				wasmFile: (porcupineVersion == 14? 'src/modules/picovoice/porcupine-14.wasm' : 'src/modules/picovoice/porcupine-19.wasm')
+				wasmFile: ('src/modules/picovoice/porcupine-' + porcupineVersion + '.wasm')
 			},
 			settings: {
 				onmessage: onWakeWordMessage,

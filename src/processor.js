@@ -276,7 +276,7 @@ if (!(typeof SepiaFW == "object")){
 					var moduleName = info.moduleName;
 					var moduleSetup = info.moduleSetup;
 					
-					//pre-loads - NOTE: there might be room for optimizations here ...
+					//pre-loads - NOTE: there might be room for optimizations here ... - TODO: can/should we cache preloads globally?
 					var preLoads = {};
 					var preLoadKeys = Object.keys(info.modulePreLoads);
 					await Promise.all(preLoadKeys.map(async function(plKey, j){
@@ -349,6 +349,7 @@ if (!(typeof SepiaFW == "object")){
 						if (err.message && err.message.indexOf("Uncaught {") == 0){
 							err.preventDefault();
 							errorMessage = JSON.parse(err.message.replace(/^Uncaught /, ""));
+							err.message = errorMessage;
 						}
 						onProcessorError({
 							name: "AudioModuleProcessorException",
@@ -358,6 +359,9 @@ if (!(typeof SepiaFW == "object")){
 						if (isInitPending && !isInitialized){
 							completeInitCondition("module-" + i);
 							initializerError({message: "Error during setup of module: " + thisProcessNode.moduleName, name: "ProcessorInitError", info: errorMessage});
+						}
+						if (moduleSetup.onerror){
+							moduleSetup.onerror(err);	//... in case the user requires per-module error messages
 						}
 					}
 

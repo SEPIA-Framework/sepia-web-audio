@@ -127,12 +127,14 @@ function constructWorker(options) {
 	processBufferSize = options.setup.bufferSize || inputSampleSize;
 	
 	porcupineVersion = options.setup.version || options.setup.porcupineVersion || 19;
+	porcupineVersion = porcupineVersion.replace(".", "").trim();	//remove dot
 	importScripts('./picovoice/porcupine-wasm-module-' + porcupineVersion + '.js');
 	
 	keywords = options.setup.keywords || ["Computer"];
 	keywords.forEach(function(kw){
 		importScripts('./picovoice/porcupine-keywords/' + kw.replace(/\s+/, "_").toLowerCase() + "_wasm_" + porcupineVersion + '.js');
 	});
+	//TODO: use 'options.setup.keywordsData'
 	sensitivities = options.setup.sensitivities || [0.5];
 	
 	var wasmFileArrayBuffer = options.preLoadResults.wasmFile;

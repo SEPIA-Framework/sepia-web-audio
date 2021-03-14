@@ -57,6 +57,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 		
 		this.passThroughMode = (options.processorOptions.passThroughMode != undefined)? options.processorOptions.passThroughMode : 1;	//0: nothing, 1: original, 2: 16bit PCM
 		this.calculateRmsVolume = (options.processorOptions.calculateRmsVolume != undefined)? options.processorOptions.calculateRmsVolume : true;
+		this.gain = options.processorOptions.gain || 1.0;
 				
 		//resampling - modes 0: no change, -1: downsampling, 1: upsampling
 		this.resamplingMode = (this.targetSampleRate < this.sourceSamplerate? -1 : (this.targetSampleRate > this.sourceSamplerate? 1 : 0));
@@ -89,6 +90,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 			
 			that._emitterSqrSum = 0;
 			that._emitterSamples = 0;
+			that._hasGain = (that.gain < 1 || that.gain > 1);
 		}
 		init();
 		
@@ -128,6 +130,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 					calculateRmsVolume: that.calculateRmsVolume,
 					channelCount: that.channelCount,
 					resamplingMode: that.resamplingMode,
+					gain: that.gain,
 					inputPassThrough: that.inputPassThrough
 				}
 			});
@@ -284,6 +287,8 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 			//transfer input to 16bit signed, interleaved (channels) PCM output - TODO: ONLY MONO so far!
 			let sqrSum = 0;
 			for (let i = 0; i < inputSampleSize; ++i){
+				//gain
+				if (this._hasGain) input[0][i] = input[0][i] * this.gain;
 				
 				//float to 16Bit interleaved PCM
 				this.floatTo16BitInterleavedPCM(input, this._newInputBuffer, i);

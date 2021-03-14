@@ -113,7 +113,7 @@ function constructWorker(options) {
 	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
 	
 	calculateRmsVolume = (options.setup.calculateRmsVolume != undefined)? options.setup.calculateRmsVolume : true;
-	gain = options.setup.gain || 1.0;		//TODO: keep?
+	gain = options.setup.gain || 1.0;
 	
 	resamplingMode = (targetSampleRate < sourceSamplerate? -1 : (targetSampleRate > sourceSamplerate? 1 : 0));
 	resampleRatio = targetSampleRate/sourceSamplerate;
