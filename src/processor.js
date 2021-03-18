@@ -129,6 +129,8 @@ if (!(typeof SepiaFW == "object")){
 				if (Object.keys(initConditions).length == 0){
 					if (!isInitialized){
 						clearTimeout(initTimeoutTimer);
+						isInitialized = true;
+						isInitPending = false;
 						initSuccessCallback({
 							name: "ProcessorReady", 
 							message: "Processor is ready for action",
@@ -137,8 +139,6 @@ if (!(typeof SepiaFW == "object")){
 							sourceInfo: sourceInitInfo,
 							modulesInfo: modulesInitInfo
 						});
-						isInitialized = true;
-						isInitPending = false;
 					}
 				}
 			}
@@ -655,7 +655,7 @@ if (!(typeof SepiaFW == "object")){
 		
 		//INTERFACE
 		
-		thisProcessor.start = function(){
+		thisProcessor.start = function(callback){
 			if (isInitialized && !isProcessing){
 				startFun(function(){
 					var startTime = new Date().getTime();	//TODO: is this maybe already too late?
@@ -663,11 +663,12 @@ if (!(typeof SepiaFW == "object")){
 					if (options.onaudiostart) options.onaudiostart({
 						startTime: startTime
 					});
+					if (callback) callback();
 				});
 			}
 		}
 		
-		thisProcessor.stop = function(){
+		thisProcessor.stop = function(callback){
 			if (isProcessing){
 				stopFun(function(){ 
 					var endTime = new Date().getTime();		//TODO: is this maybe already too late?
@@ -675,14 +676,16 @@ if (!(typeof SepiaFW == "object")){
 					if (options.onaudioend) options.onaudioend({
 						endTime: endTime
 					});
+					if (callback) callback();
 				});
 			}
 		}
 		
-		thisProcessor.release = function(){
+		thisProcessor.release = function(callback){
 			releaseFun(function(){ 
 				setStateProcessorReleased();
 				if (options.onrelease) options.onrelease();
+				if (callback) callback();
 			});
 		}
 	}
