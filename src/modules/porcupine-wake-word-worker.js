@@ -5,6 +5,8 @@ importScripts('./shared/ring-buffer.min.js');
 importScripts('./picovoice/porcupine-wasm-interface.js');
 var PorcupineKeywords = {
 	v14: {},
+	v15: {},
+	v16: {},
 	v19: {}
 }
 
@@ -128,7 +130,12 @@ function constructWorker(options) {
 	
 	porcupineVersion = options.setup.version || options.setup.porcupineVersion || 19;
 	porcupineVersion = porcupineVersion.replace(".", "").trim();	//remove dot
-	importScripts('./picovoice/porcupine-wasm-module-' + porcupineVersion + '.js');
+	//importScripts('./picovoice/porcupine-wasm-module-' + porcupineVersion + '.js');
+	if (porcupineVersion <= 16){
+		importScripts('./picovoice/porcupine-wasm-module-' + "14" + '.js');		//we assume this works for 14-16?
+	}else{
+		importScripts('./picovoice/porcupine-wasm-module-' + "19" + '.js');		//this will probably fail for 17 and 18 (not supported)
+	}
 	
 	keywords = options.setup.keywords || ["Computer"];
 	keywords.forEach(function(kw){
