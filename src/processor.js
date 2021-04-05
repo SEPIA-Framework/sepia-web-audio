@@ -3,6 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
+	WebAudio.version = "0.9.1";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -361,7 +362,7 @@ if (!(typeof SepiaFW == "object")){
 							initializerError({message: "Error during setup of module: " + thisProcessNode.moduleName, name: "ProcessorInitError", info: errorMessage});
 						}
 						if (moduleSetup.onerror){
-							moduleSetup.onerror(err);	//... in case the user requires per-module error messages
+							moduleSetup.onerror(err);
 						}
 					}
 
@@ -618,6 +619,7 @@ if (!(typeof SepiaFW == "object")){
 					onAfterRelease: options.customSource.release || options.customSource.afterRelease
 				},{
 					type: (options.customSource.type || "custom"),		//TODO: add more?
+					typeData: options.customSource.typeData,
 					hasWorkletSupport: (options.customSource.hasWorkletSupport != undefined)? 
 						options.customSource.hasWorkletSupport : true
 				});
@@ -628,7 +630,7 @@ if (!(typeof SepiaFW == "object")){
 			});
 			
 		//Cordova Audioinput plugin
-		}else if (isCordovaAudioinputSupported){
+		//}else if (isCordovaAudioinputSupported){
 			//TODO: implement?
 		
 		//Official MediaDevices interface using microphone
@@ -983,6 +985,7 @@ if (!(typeof SepiaFW == "object")){
 			var customSource = {
 				node: processNode,
 				type: "scriptProcessor",
+				typeData: res.info,
 				hasWorkletSupport: false, 	//does not fit into audio processing thread (normal worklets)
 				//TODO: ?!?
 				start: function(){},
@@ -1069,6 +1072,10 @@ if (!(typeof SepiaFW == "object")){
 							audioBufferSourceNode.loop = true;
 							return resolve({
 								node: audioBufferSourceNode,
+								type: "fileAudioBuffer",
+								typeData: {
+									fileUrl: fileUrl
+								},
 								start: function(){ audioBufferSourceNode.start(); },
 								stop: function(){ audioBufferSourceNode.stop(); },
 								release: function(){}	//TODO: ?!?
