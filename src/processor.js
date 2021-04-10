@@ -355,6 +355,7 @@ if (!(typeof SepiaFW == "object")){
 						onProcessorError({
 							name: "AudioModuleProcessorException",
 							message: ("Error in module: " + err.target.moduleName + " - " + (errorMessage && errorMessage.message? errorMessage.message : "Check console for details.")),
+							module: err.target.moduleName,
 							info: errorMessage
 						});
 						if (isInitPending && !isInitialized){
