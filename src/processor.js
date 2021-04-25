@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.2";
+	WebAudio.version = "0.9.3";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -86,7 +86,9 @@ if (!(typeof SepiaFW == "object")){
 			//NOTE: currently (Dec 2020) only Chromium can do this:
 			contextOptions.sampleRate = options.targetSampleRate;
 		}
-		return new AudioContext(contextOptions);
+		var ac = new AudioContext(contextOptions);
+		//console.log("AC STATE: " + ac.state);		//TODO: this can be suspended if the website is restrict and the user didn't interact with it yet
+		return ac;
 	};
 	
 	//Processor class
@@ -309,11 +311,13 @@ if (!(typeof SepiaFW == "object")){
 					fullOptions.preLoadResults = preLoads;
 					
 					var thisProcessNode;
+
 					function onMessage(event){
 						if (!event || event.data == undefined){
 							//TODO: simply ignore?
 						}else if (event.data.moduleState == 1){
 							//STATE
+							thisProcessNode.isReady = true;
 							completeInitCondition("module-" + i);
 							if (event.data.moduleInfo) thisProcessNode.moduleInfo = event.data.moduleInfo;
 							initInfo[i] = {
@@ -380,10 +384,21 @@ if (!(typeof SepiaFW == "object")){
 							}
 						}
 						thisProcessNode = new AudioWorkletNode(mainAudioContext, moduleName, fullOptions);
+						thisProcessNode.isReady = false;
 						thisProcessNode.moduleName = moduleName;
 						thisProcessNode.port.onmessage = onMessage;
 						thisProcessNode.onprocessorerror = onError;
-						thisProcessNode.sendToModule = function(msg){ thisProcessNode.port.postMessage(msg); };
+						thisProcessNode.sendToModule = function(msg){ 
+							if (!thisProcessNode.isReady){
+								onProcessorError({
+									name: "AudioModuleProcessorException",
+									message: "'sendToModule' was called before module was actually ready. Consider 'startSuspended' option maybe.'",
+									module: thisProcessNode.moduleName
+								});
+							}else{
+								thisProcessNode.port.postMessage(msg);
+							}
+						};
 					
 					//Web Worker
 					}else if (moduleType == 2){
@@ -395,10 +410,22 @@ if (!(typeof SepiaFW == "object")){
 							}
 						}
 						thisProcessNode = new Worker(moduleFolder + moduleName.replace(/-worker$/, "") + '-worker.js'); //NOTE: a worker has to be named "-worker.js"!
+						thisProcessNode.isReady = false;
 						thisProcessNode.moduleName = moduleName;
 						thisProcessNode.onmessage = onMessage;
 						thisProcessNode.onerror = onError;
-						thisProcessNode.sendToModule = function(msg){ thisProcessNode.postMessage(msg); };
+						thisProcessNode.sendToModule = function(msg){ 
+							if (!thisProcessNode.isReady){
+								if (msg && msg.ctrl && msg.ctrl.action == "construct") thisProcessNode.postMessage(msg);
+								else onProcessorError({
+									name: "AudioModuleProcessorException",
+									message: "'sendToModule' was called before module was actually ready. Consider 'startSuspended' option maybe.",
+									module: thisProcessNode.moduleName
+								});
+							}else{
+								thisProcessNode.postMessage(msg);
+							}
+						};
 						thisProcessNode.sendToModule({ctrl: {action: "construct", options: fullOptions}});
 					
 					//Script Processor
