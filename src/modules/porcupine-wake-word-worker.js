@@ -49,6 +49,11 @@ onmessage = function(e){
 	}
 };
 
+let workerId = "porcupine-wake-word-worker-" + Math.round(Math.random() * 1000000) + "-" + Date.now();
+//let doDebug = false;
+//let wasConstructorCalled = false;
+//let isReadyForProcessing = false;		//TODO: implement this ?
+
 let porcupine;
 let porcupineVersion;
 let _Porcupine;
@@ -88,6 +93,7 @@ function ready(){
 	postMessage({
 		moduleState: 1,
 		moduleInfo: {
+			moduleId: workerId,
 			inputSampleRate: inputSampleRate,
 			channelCount: channelCount,
 			inputSampleSize: inputSampleSize,
@@ -130,11 +136,10 @@ function constructWorker(options) {
 	
 	porcupineVersion = options.setup.version || options.setup.porcupineVersion || 19;
 	porcupineVersion = porcupineVersion.replace(".", "").trim();	//remove dot
-	//importScripts('./picovoice/porcupine-wasm-module-' + porcupineVersion + '.js');
 	if (porcupineVersion <= 16){
 		importScripts('./picovoice/porcupine-wasm-module-' + "14" + '.js');		//we assume this works for 14-16?
 	}else{
-		importScripts('./picovoice/porcupine-wasm-module-' + "19" + '.js');		//this will probably fail for 17 and 18 (not supported)
+		importScripts('./picovoice/porcupine-wasm-module-' + "19" + '.js');
 	}
 	
 	keywords = options.setup.keywords || ["Computer"];
