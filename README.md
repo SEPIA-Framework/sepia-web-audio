@@ -1,6 +1,18 @@
-# sepia-web-audio
+# SEPIA Web-Audio Library
 
-Cross-browser web audio processor, recorder and VAD
+## -- Currently in BETA --
+
+Modular, cross-browser library to record and process audio using audio-worklets, web-workers and script-processors (as fallback).
+Can be used to chain different modules (worklets AND workers) to one audio pipeline.   
+  
+Available modules:
+
+- Resampler using Speex codec (WASM module)
+- Voice-Activity-Detection (VAD) via WebRTC-VAD
+- Custom SEPIA VAD module using Meyda to analyze bark-scale, MFCC and more
+- Wave Encoder with lookback-buffer
+- Porcupine Wake-Word detector
+- more to come ...
 
 # Resources (see LICENSE as well)
 
