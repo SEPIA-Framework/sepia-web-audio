@@ -11,5 +11,6 @@ Cross-browser web audio processor, recorder and VAD
 * [Meyda](https://github.com/meyda/meyda)
 * [Node Speex Resampler](https://github.com/geekuillaume/node-speex-resampler)
 * [pcm-convert](https://github.com/audiojs/pcm-convert)
+* [Web-MFCC](https://github.com/miaobin/web-mfcc)
 * [uPlot Lazy Interface](https://github.com/bytemind-de/uPlot-lazy-interface)
 * [Freesound.org](https://freesound.org/)

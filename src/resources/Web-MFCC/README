@@ -1,0 +1,6 @@
+# Web-MFCC
+
+Original by @miaobin - https://github.com/miaobin/web-mfcc (2021.02.11)
+Modified by FQ for SEPIA Framework.
+
+Since the repository had no license I've added the Tensorflow-Lite Apache 2.0.

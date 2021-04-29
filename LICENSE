@@ -29,3 +29,4 @@ Chromium VAD - 3-Clause BSD - [Chromium Repository](https://chromium.googlesourc
 Meyda - MIT License - [Meyda Repository](https://github.com/meyda/meyda)
 Speex Resampler - MIT License - [Node Speex Resampler](https://github.com/geekuillaume/node-speex-resampler) and [SpeexDSP](https://github.com/xiph/speexdsp)
 pcm-convert - MIT License - [pcm-convert Repository](https://github.com/audiojs/pcm-convert)
+Web-MFCC - Apache-2.0 License - Original by @miaobin - https://github.com/miaobin/web-mfcc
