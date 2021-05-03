@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.3";
+	WebAudio.version = "0.9.4";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -12,12 +12,13 @@ if (!(typeof SepiaFW == "object")){
 
 	function testStreamRecorderSupport(){
 		isMediaDevicesSupported = (!!AudioContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-		isCordovaAudioinputSupported = (window.cordova && window.audioinput);
+		//isCordovaAudioinputSupported = (window.cordova && window.audioinput);		//TODO: implement
 		return !!isMediaDevicesSupported || isCordovaAudioinputSupported;
 	}
 	
 	WebAudio.isStreamRecorderSupported = testStreamRecorderSupport(); 		//set once at start
 	WebAudio.isNativeStreamResamplingSupported = true; 	//will be tested on first media-stream creation
+	WebAudio.tryNativeStreamResampling = true;			//overwrite to force-ignore native resampling
 	WebAudio.contentFetchTimeout = 8000;	//used e.g. for WASM pre-loads etc.
 	
 	WebAudio.defaultProcessorOptions = {
@@ -87,6 +88,7 @@ if (!(typeof SepiaFW == "object")){
 			contextOptions.sampleRate = options.targetSampleRate;
 		}
 		var ac = new AudioContext(contextOptions);
+		//TODO: on some freaky circumstances ac.state can be faulty as seen in iOS (shows 'suspended' but await ac.suspend() never resolves)
 		//console.log("AC STATE: " + ac.state);		//TODO: this can be suspended if the website is restrict and the user didn't interact with it yet
 		return ac;
 	};
@@ -177,6 +179,7 @@ if (!(typeof SepiaFW == "object")){
 				//TODO: clean up old context and sources?
 				mainAudioContext = WebAudio.createAudioContext(options, ignoreOptions);
 				if (options.startSuspended){
+					try { await mainAudioContext.resume(); } catch(error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await mainAudioContext.suspend();
 				}else{
 					await mainAudioContext.resume();
@@ -254,9 +257,7 @@ if (!(typeof SepiaFW == "object")){
 		function setStateProcessingStop(){
 			isProcessing = false;
 		}
-		function setStateProcessorReleased(){
-			//anythinig?
-		}
+		//function setStateProcessorReleased(){} //already handled in 'resetInitializer'
 			
 		//Supported?
 		if (!WebAudio.isStreamRecorderSupported && !options.customSourceTest && !options.customSource){
@@ -527,7 +528,7 @@ if (!(typeof SepiaFW == "object")){
 			if (!controls) controls = {};	//e.g.: onBeforeStart, onAfterStart, onBeforeStop, onAfterStop, onBeforeRelease, onAfterRelease
 			
 			//START
-			startFun = function(callback){
+			startFun = function(startCallback, errorCallback){
 				Promise.resolve((controls.onBeforeStart || noop)())
 				.then(function(){
 					return mainAudioContext.resume();
@@ -552,11 +553,14 @@ if (!(typeof SepiaFW == "object")){
 						return Promise.resolve(controls.onAfterStart());
 					}
 				})
-				.then(callback)
-				.catch(function(err){onProcessorError({name: "ProcessorStartError", message: (err.name + " - Message: " + (err.message || err))});});
+				.then(startCallback)
+				.catch(function(err){
+					onProcessorError({name: "ProcessorStartError", message: (err.name + " - Message: " + (err.message || err))});
+					errorCallback(err);
+				});
 			}
 			//STOP
-			stopFun = function(callback){
+			stopFun = function(stopCallback, errorCallback){
 				Promise.resolve((controls.onBeforeStop || noop)())
 				.then(function(){
 					//disconnect and signal
@@ -572,11 +576,14 @@ if (!(typeof SepiaFW == "object")){
 						return Promise.resolve(controls.onAfterStop());
 					}
 				})
-				.then(callback)
-				.catch(function(err){onProcessorError({name: "ProcessorStopError", message: (err.name + " - Message: " + (err.message || err))});});
+				.then(stopCallback)
+				.catch(function(err){
+					onProcessorError({name: "ProcessorStopError", message: (err.name + " - Message: " + (err.message || err))});
+					errorCallback(err);
+				});
 			}
 			//RELEASE
-			releaseFun = function(callback){
+			releaseFun = function(releaseCallback, errorCallback){
 				Promise.resolve((controls.onBeforeRelease || noop)())
 				.then(function(){
 					//signal
@@ -595,11 +602,11 @@ if (!(typeof SepiaFW == "object")){
 						return Promise.resolve(controls.onAfterRelease());
 					}
 				})
-				.then(function(){
-					return Promise.resolve(resetInitializer());
-				})
-				.then(callback)
-				.catch(function(err){onProcessorError({name: "ProcessorReleaseError", message: (err.name + " - Message: " + (err.message || err))});});
+				.then(releaseCallback)
+				.catch(function(err){
+					onProcessorError({name: "ProcessorReleaseError", message: (err.name + " - Message: " + (err.message || err))});
+					errorCallback(err);
+				});
 			}
 			
 			completeInitCondition("sourceSetup");
@@ -685,7 +692,9 @@ if (!(typeof SepiaFW == "object")){
 		
 		//INTERFACE
 		
-		thisProcessor.start = function(callback){
+		thisProcessor.start = function(startCallback, noopCallback, errorCallback){		
+			//NOTE: callback management is a bit tricky here - most of the time you should use the common processor callbacks ...
+			//... but in some situations you need a more direct feedback. Error here might not call all async. module errors though.
 			if (isInitialized && !isProcessing){
 				startFun(function(){
 					var startTime = new Date().getTime();	//TODO: is this maybe already too late?
@@ -693,34 +702,49 @@ if (!(typeof SepiaFW == "object")){
 					if (options.onaudiostart) options.onaudiostart({
 						startTime: startTime
 					});
-					if (callback) callback();
-				});
+					if (startCallback) startCallback();
+				}, errorCallback);
+			}else{
+				if (noopCallback) noopCallback();
 			}
 		}
 		
-		thisProcessor.stop = function(callback){
+		thisProcessor.stop = function(stopCallback, noopCallback, errorCallback){
+			//NOTE: see notes above about callbacks
 			if (isProcessing){
-				stopFun(function(){ 
+				stopFun(function(){
 					var endTime = new Date().getTime();		//TODO: is this maybe already too late?
 					setStateProcessingStop();
 					if (options.onaudioend) options.onaudioend({
 						endTime: endTime
 					});
-					if (callback) callback();
-				});
+					if (stopCallback) stopCallback();
+				}, errorCallback);
+			}else{
+				if (noopCallback) noopCallback();
 			}
 		}
 		
-		thisProcessor.release = function(callback){
-			releaseFun(function(){ 
-				setStateProcessorReleased();
-				if (options.onrelease) options.onrelease();
-				if (callback) callback();
-			});
+		thisProcessor.release = function(releaseCallback, noopCallback, errorCallback){
+			//NOTE: see notes above about callbacks
+			if (isInitialized && releaseFun){
+				releaseFun(function(){
+					resetInitializer();
+					if (options.onrelease) options.onrelease();
+					if (releaseCallback) releaseCallback();
+				}, errorCallback);
+			}else if (isInitPending){
+				initializerError({message: "Release was called before initialization was complete.", name: "ProcessorInitError"});
+			}else{
+				if (noopCallback) noopCallback();
+			}
 		}
 
 		thisProcessor.isInitialized = function(){
 			return isInitialized;
+		}
+		thisProcessor.isInitPending = function(){
+			return isInitPending;
 		}
 		thisProcessor.isProcessing = function(){
 			return isProcessing;
@@ -771,6 +795,7 @@ if (!(typeof SepiaFW == "object")){
 			asyncCreateOrUpdateAudioContext = async function(forceNew, ignoreOptions){
 				var audioContext = WebAudio.createAudioContext(options, ignoreOptions);
 				if (options.startSuspended){
+					try { await audioContext.resume(); } catch (error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await audioContext.suspend();
 				}else{
 					await audioContext.resume();
@@ -800,7 +825,7 @@ if (!(typeof SepiaFW == "object")){
 					
 					//Audio context and source node
 					var audioContext;
-					if (WebAudio.isNativeStreamResamplingSupported){
+					if (WebAudio.tryNativeStreamResampling && WebAudio.isNativeStreamResamplingSupported){
 						audioContext = await asyncCreateOrUpdateAudioContext(false, false);		//Try native resampling first
 					}else{
 						audioContext = await asyncCreateOrUpdateAudioContext(false, true);
@@ -1065,6 +1090,7 @@ if (!(typeof SepiaFW == "object")){
 				try {
 					//Audio context and source node
 					var audioContext = WebAudio.createAudioContext(options);
+					try { await audioContext.resume(); } catch(error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await audioContext.suspend();
 					
 					var modulePath = moduleFolder + "white-noise-generator.js";
@@ -1097,6 +1123,7 @@ if (!(typeof SepiaFW == "object")){
 				try {
 					//AudioContext and AudioBufferSourceNode - NOTE: maybe useful: new OfflineAudioContext(1, 128, 16000);
 					var audioContext = WebAudio.createAudioContext(options);
+					try { await audioContext.resume(); } catch(error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await audioContext.suspend();
 					var audioBufferSourceNode = audioContext.createBufferSource();
 					
