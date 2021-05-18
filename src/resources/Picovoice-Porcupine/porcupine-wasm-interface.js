@@ -35,8 +35,9 @@ let PorcupineBuilder = (function() {
             }
         }
 
-        let porcupineModule = PorcupineModule(wasmFileArrayBuffer, defaultWasmBinaryFile);
-        porcupineModule.then(function(Module) {
+		let porcupineModule;
+        PorcupineModule(wasmFileArrayBuffer, defaultWasmBinaryFile).then(function(Module) {
+			porcupineModule = Module;
             initWasm = Module.cwrap("pv_porcupine_wasm_init", "number", [
                 "number",
                 "number",
