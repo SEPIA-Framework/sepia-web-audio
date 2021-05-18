@@ -286,11 +286,15 @@ if (!(typeof SepiaFW == "object")){
 					await Promise.all(preLoadKeys.map(async function(plKey, j){
 						var plPath = info.modulePreLoads[plKey];	//NOTE: this can be a string or an object ({type: 2, path: 'url'})
 						var plType = 1;		//1: text, 2: arraybuffer
+						var convert = undefined;
 						if (typeof plPath == "object"){
 							plType = (plPath.type && (plPath.type == 2 || plPath.type.toLowerCase() == "arraybuffer"))? 2 : 1;
 							plPath = plPath.path || plPath.url;
 						}else if (plKey.indexOf("wasmFile") == 0){
 							plType = 2;
+						}else if (plKey.indexOf("wasmBase64") == 0){
+							plType = 1;
+							convert = convertBase64ToUint8Array;
 						}
 						try{
 							var data;
@@ -300,6 +304,9 @@ if (!(typeof SepiaFW == "object")){
 								data = await textLoaderPromise(plPath);
 							}else if (plType == 2){
 								data = await arrayBufferLoaderPromise(plPath);
+							}
+							if (typeof convert == "function"){
+								data = convert(data);
 							}
 							preLoads[plKey] = data;
 						}catch (err){
@@ -442,6 +449,21 @@ if (!(typeof SepiaFW == "object")){
 					}
 					thisProcessNode.moduleType = moduleType;
 					thisProcessNode.ignoreSendToModules = false;	//this is most useful for workers to prevent serialization if message is not processed anyway
+					thisProcessNode.deactivate = function(){
+						thisProcessNode.ignoreSendToModules = true;		//prevent all other modules to send messages to this one
+						if (isProcessing){
+							//stop and reset if processor is running
+							thisProcessNode.sendToModule({ctrl: {action: "stop"}});
+							thisProcessNode.sendToModule({ctrl: {action: "reset"}});
+						}
+					}
+					thisProcessNode.activate = function(){
+						thisProcessNode.ignoreSendToModules = false;
+						if (isProcessing){
+							//start if processor is already running
+							thisProcessNode.sendToModule({ctrl: {action: "start"}});
+						}
+					}
 					module.handle = thisProcessNode;
 					
 					//adapt module to first non-worklet source?
@@ -1291,6 +1313,20 @@ if (!(typeof SepiaFW == "object")){
 			errorCallback(e);
 		};
 		request.send();
+	}
+
+	//Base64 converter
+	function convertBase64ToUint8Array(s){
+		try {
+			var decoded = atob(s);
+			var bytes = new Uint8Array(decoded.length);
+			for (var i = 0; i < decoded.length; ++i){
+				bytes[i] = decoded.charCodeAt(i);
+			}
+			return bytes;
+		}catch (error){
+			throw new Error("Converting base64 string to bytes failed.");
+		}
 	}
 	
 	//used to keep Promise structure, e.g.: Promise.resolve((optionalFun || noop)()).then(...)
