@@ -25,7 +25,7 @@ class ExampleProcessor extends AudioWorkletProcessor {
 			that.port.postMessage({
 				//Default message type is "processing result", but it can be 'moduleState', 'moduleEvent' and 'moduleResponse' ("on-demand" requests) as well
 				//NOTE: only default processing (no tag) and 'moduleEvent' will be forwarded automatically
-				moduleState: 1,		//1=ready, 2=changed
+				moduleState: 1,		//1=ready, 2=changed, 9=read for termination
 				moduleInfo: {
 					sourceSamplerate: that.sourceSamplerate,
 					targetSamplerate: that.targetSamplerate,
@@ -54,6 +54,11 @@ class ExampleProcessor extends AudioWorkletProcessor {
 		//release (alias: close)
 		function release(options){
 			//clean-up processor
+			
+			//notify processor that we can terminate now
+			that.port.postMessage({
+				moduleState: 9
+			});
 		}
 		
 		//Control interface

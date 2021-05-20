@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.4";
+	WebAudio.version = "0.9.5";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -335,6 +335,16 @@ if (!(typeof SepiaFW == "object")){
 							if (--N == 0){
 								completeCallback(initInfo);
 							}
+						}else if (event.data.moduleState == 9 && !thisProcessNode.isTerminated){
+							if (typeof thisProcessNode.terminate == "function"){
+								try {
+									thisProcessNode.isTerminated = true;
+									thisProcessNode.terminate();	
+								}catch (err){
+									thisProcessNode.isTerminated = true;	//we need this to prevent follow up errors
+									onError({name: "TerminateError", message: "Failed to terminate module", info: err});
+								}
+							}
 						}else if (event.data.moduleResponse){
 							//RESPONSE to "on-demand" request
 							//TODO: ignore?
@@ -417,14 +427,14 @@ if (!(typeof SepiaFW == "object")){
 								targetSampleRate: options.targetSampleRate
 							}
 						}
-						thisProcessNode = new Worker(moduleFolder + moduleName.replace(/-worker$/, "") + '-worker.js'); //NOTE: a worker has to be named "-worker.js"!
+						thisProcessNode = new Worker(moduleFolder + moduleName.replace(/-worker$/, "") + '-worker.js'); 	//NOTE: a worker has to be named "-worker.js"!
 						thisProcessNode.isReady = false;
 						thisProcessNode.moduleName = moduleName;
 						thisProcessNode.onmessage = onMessage;
 						thisProcessNode.onerror = onError;
 						thisProcessNode.sendToModule = function(msg){ 
 							if (!thisProcessNode.isReady){
-								if (msg && msg.ctrl && msg.ctrl.action == "construct") thisProcessNode.postMessage(msg);
+								if (msg && msg.ctrl && msg.ctrl.action == "construct") thisProcessNode.postMessage(msg); 	//TODO: consider transerf option: (msg, [transfer]);
 								else onProcessorError({
 									name: "AudioModuleProcessorException",
 									message: "'sendToModule' was called before module was actually ready. Consider 'startSuspended' option maybe.",
