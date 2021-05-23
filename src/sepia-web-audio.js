@@ -12,7 +12,7 @@ if (!(typeof SepiaFW == "object")){
 
 	function testStreamRecorderSupport(){
 		isMediaDevicesSupported = (!!AudioContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-		//isCordovaAudioinputSupported = (window.cordova && window.audioinput);		//TODO: implement
+		//isCordovaAudioinputSupported = (window.cordova && window.audioinput);		//TODO: implement (import ... "./plugins/cordova-audio-input.js")
 		return !!isMediaDevicesSupported || isCordovaAudioinputSupported;
 	}
 	
