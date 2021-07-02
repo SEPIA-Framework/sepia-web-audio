@@ -433,7 +433,7 @@
 			targetSampleRate: targetSampleRate,
 			//targetBufferSize: 512,
 			modules: activeModules,
-			destinationNode: undefined,		//defaults to: audioContext.destination
+			destinationNode: undefined,		//defaults to: new "blind" destination (mic) or audioContext.destination (stream)
 			startSuspended: true,
 			debugLog: onDebugLog,
 			customSourceTest: useWhiteNoiseTest,

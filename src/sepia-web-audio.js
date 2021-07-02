@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.5";
+	WebAudio.version = "0.9.6";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -907,7 +907,7 @@ if (!(typeof SepiaFW == "object")){
 	
 	//MediaRecorder
 	WebAudio.createAudioRecorder = function(stream, sourceInfo, recorderOptions){
-		if (!recorderOptions) recorderOptions = {};
+		if (!recorderOptions) recorderOptions = {};		//TODO: option 'decodeToAudioBuffer' is still experimental
 		if (!recorderOptions.codec) recorderOptions.codec = "webm_ogg_opus";
 		return new Promise(function(resolve, reject){
 			(async function(){
@@ -948,7 +948,7 @@ if (!(typeof SepiaFW == "object")){
 						mediaRecorder.onstop = function(e){
 							//var blob = new Blob(chunks, {'type' : mimeType});
 							//chunks = [];
-							console.log("onstop", "state", mediaRecorder.state);		//DEBUG TODO: remove
+							//console.log("onstop", "state", mediaRecorder.state);		//DEBUG
 							if (onStop && !recorderOptions.decodeToAudioBuffer){
 								onStop();		//TODO: we delay stop if we need to decode the blob first to keep original order
 							}
@@ -958,7 +958,7 @@ if (!(typeof SepiaFW == "object")){
 							//decode chunks
 							if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
 								//catch last 'ondataavailable' and delay stop
-								console.log("ondataavailable", "state", mediaRecorder.state);		//DEBUG TODO: remove
+								//console.log("ondataavailable", "state", mediaRecorder.state);		//DEBUG
 								if (mediaRecorder.state == "inactive") triggeredLastData = true;
 								if (e && e.data){
 									let startDecode = Date.now();
@@ -987,7 +987,7 @@ if (!(typeof SepiaFW == "object")){
 						var stop = function(){
 							if (stopTimer) clearTimeout(stopTimer);
 							stoppedTS = Date.now();
-							console.log("AudioRecorder state:", mediaRecorder.state);		//DEBUG
+							//console.log("AudioRecorder state:", mediaRecorder.state);		//DEBUG
 							if (mediaRecorder.state != "inactive") mediaRecorder.stop();
 						};
 						var start = function(){
@@ -1032,7 +1032,6 @@ if (!(typeof SepiaFW == "object")){
 		});
 	}
 	function blobToArray(blobData, callback){
-		console.log("blobData", blobData);		//DEBUG
 		if (!blobData || !blobData.size){
 			callback();
 		}else if (typeof blobData.arrayBuffer == "function"){
@@ -1227,6 +1226,34 @@ if (!(typeof SepiaFW == "object")){
 		}
 		encoderWorker.postMessage({ctrl: {action: "construct", options: options}});
 	}
+	//Decode audio file to audio buffer
+	WebAudio.decodeAudioFile = function(fileUrl, sampleRate, channels, successCallback, errorCallback){
+		WebAudio.readFileAsBuffer(fileUrl, function(encodedArray){
+			var offlineAudioContext = new OfflineAudioContext(channels, encodedArray.byteLength, sampleRate);
+			offlineAudioContext.decodeAudioData(encodedArray, function(audioBuffer){
+				successCallback(audioBuffer);
+			}, function(err){
+				errorCallback(err);
+			});
+		}, function(err){
+			errorCallback(err);
+		});
+	}
+	//Decode audio file to audio buffer
+	WebAudio.decodeAudioFileToInt16Mono = function(fileUrl, sampleRate, successCallback, errorCallback){
+		var channels = 1;
+		WebAudio.decodeAudioFile(fileUrl, sampleRate, channels, function(audioBuffer){
+			var isFloat32 = true;
+			WebAudio.encodeWaveBuffer(audioBuffer.getChannelData(0), sampleRate, channels, isFloat32, function(res){
+				try {
+					var samplesInt16Mono = new Int16Array(res.wav.buffer);
+					successCallback(samplesInt16Mono);
+				}catch(err){
+					errorCallback(err);
+				}
+			}, errorCallback);
+		}, errorCallback);
+	}
 	
 	//WASM resampler
 	WebAudio.resampleBufferViaSpeex = function(buffer, inputSampleRate, targetSampleRate, channels, quality, successCallback, errorCallback){
@@ -1337,6 +1364,19 @@ if (!(typeof SepiaFW == "object")){
 		}catch (error){
 			throw new Error("Converting base64 string to bytes failed.");
 		}
+	}
+	
+	//Add audio data as audio element to element on page (or body)
+	WebAudio.addAudioElementToPage = function(targetEle, audioData, audioType){
+		var audioEle = document.createElement("audio");
+		audioEle.src = window.URL.createObjectURL((audioData.constructor.name == "Blob")?
+			audioData : (new Blob([audioData], { type: (audioType || "audio/wav") })));
+		audioEle.setAttribute("controls", "controls");
+		var audioBox = document.createElement("div");
+		audioBox.appendChild(audioEle);
+		if (!targetEle) targetEle = document.body;
+		targetEle.appendChild(audioBox);
+		return audioEle;
 	}
 	
 	//used to keep Promise structure, e.g.: Promise.resolve((optionalFun || noop)()).then(...)
