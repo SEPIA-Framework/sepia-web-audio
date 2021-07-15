@@ -1,9 +1,10 @@
 # SEPIA Web-Audio Library
 
-## -- Currently in BETA --
-
 Modular, cross-browser library to record and process audio using audio-worklets, web-workers and script-processors (as fallback).
-Can be used to chain different modules (worklets AND workers) to one audio pipeline.   
+Can be used to **chain different modules (worklets AND workers) to one audio pipeline**.   
+  
+The main focus of this library is speech recording and processing (see: [SEPIA Client app](https://github.com/SEPIA-Framework/sepia-html-client-app)),
+but you can quickly add modules for many other use-cases as well (contributions welcome ^^).
   
 Available modules:
 
@@ -12,7 +13,13 @@ Available modules:
 - Custom SEPIA VAD module using Meyda to analyze bark-scale, MFCC and more
 - Wave Encoder with lookback-buffer
 - Porcupine Wake-Word detector
+- [SEPIA STT Server](https://github.com/SEPIA-Framework/sepia-stt-server) WebSocket module for speech recognition
 - more to come ...
+
+## Quick-Start
+
+UNDER CONSTRUCTION  
+In the meantime please check out the test pages.
 
 # Resources (see LICENSE as well)
 
