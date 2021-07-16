@@ -96,7 +96,7 @@
 			SepiaVoiceRecorder.onSpeechRecognitionEvent(msg.recognitionEvent);
 		}
 		if (msg.connectionEvent){
-			//TODO: use? - type: open, ready, close
+			//TODO: use? - type: open, ready, closed
 		}
 		//In debug or test-mode the module might send the recording:
 		if (msg.output && msg.output.wav){
