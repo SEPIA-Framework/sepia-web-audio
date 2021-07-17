@@ -16,51 +16,51 @@ function vibrate(pattern){
 	}
 }
 
-function addWaveToPage(wavAudio, targetEle){
-	var audioEle = document.createElement("audio");
-	audioEle.src = window.URL.createObjectURL((wavAudio.constructor.name == "Blob")? wavAudio : (new Blob([wavAudio], { type: "audio/wav" })));
-	audioEle.setAttribute("controls", "controls");
-	var audioBox = document.createElement("div");
-	audioBox.appendChild(audioEle);
-	if (!targetEle) targetEle = document.getElementById("mainView") || document.body;
-	targetEle.appendChild(audioBox);
+function addWaveToPage(wavAudio){
+	var targetElement = document.getElementById("mainView") || document.body;
+	var audioType = "audio/wav";
+	SepiaFW.webAudio.addAudioElementToPage(targetElement, wavAudio, audioType);
 }
 
-uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
-var fixedPlots = {
-	1: {
-		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
-			rememberMax: true
-		})), 
-		use: (document.getElementById("usePlot1")? document.getElementById("usePlot1").checked : true)
-	},
-	2: {
-		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart2'), 150, {
-			rememberMax: true
-		}, {
-			showAxisX: false
-		})),
-		use: (document.getElementById("usePlot2")? document.getElementById("usePlot2").checked : true)
-	},
-	3: {
-		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart3'), 150, {
-			//rememberMax: true
-		}, {
-			showAxisX: false
-			//yRange: [-0.1, 1.1]
-		})),
-		use: (document.getElementById("usePlot3")? document.getElementById("usePlot3").checked : true)
-	},
-	4: {
-		graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart4'), 150, {
-			rememberMax: true
-		}, {
-			fill: ["#ceff1a1a"]
-		})), 
-		use: (document.getElementById("usePlot4")? document.getElementById("usePlot4").checked : true)
-	},
+var fixedPlots = {};
+if (window.uPlot && uPlot.lazy){
+	uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
+	fixedPlots = {
+		1: {
+			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
+				rememberMax: true
+			})), 
+			use: (document.getElementById("usePlot1")? document.getElementById("usePlot1").checked : true)
+		},
+		2: {
+			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart2'), 150, {
+				rememberMax: true
+			}, {
+				showAxisX: false
+			})),
+			use: (document.getElementById("usePlot2")? document.getElementById("usePlot2").checked : true)
+		},
+		3: {
+			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart3'), 150, {
+				//rememberMax: true
+			}, {
+				showAxisX: false
+				//yRange: [-0.1, 1.1]
+			})),
+			use: (document.getElementById("usePlot3")? document.getElementById("usePlot3").checked : true)
+		},
+		4: {
+			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart4'), 150, {
+				rememberMax: true
+			}, {
+				fill: ["#ceff1a1a"]
+			})), 
+			use: (document.getElementById("usePlot4")? document.getElementById("usePlot4").checked : true)
+		},
+	}
 }
 function usePlot(index, ele){
+	if (!ele) return;
 	var p = fixedPlots[index];
 	if (p){
 		p.use = ele.checked;
@@ -69,18 +69,26 @@ function usePlot(index, ele){
 	}
 }
 function useHeatmap(index, ele){
+	if (!ele) return;
 	useHeatmaps[index] = ele.checked;
 	if (heatmaps[index]) heatmaps[index].resetMax();
+	if (ele.checked){
+	}
+	var container = document.getElementById("heatmap" + index);
+	if (container) container.style.display = ele.checked? "" : "none";
 }
 var useHeatmaps = {};
-var heatmaps = {
-	1: new uPlot.lazy.Heatmap(document.getElementById('heatmap1'), {
-		dataPixelWidth: 4,
-		dataPixelHeight: 4,
-		colorIndex: 4,
-		maxDataPoints: 150
-	})
-};
+var heatmaps = {};
+if (window.uPlot && uPlot.lazy && uPlot.lazy.Heatmap){
+	heatmaps = {
+		1: new uPlot.lazy.Heatmap(document.getElementById('heatmap1'), {
+			dataPixelWidth: 4,
+			dataPixelHeight: 4,
+			colorIndex: 4,
+			maxDataPoints: 150
+		})
+	};
+}
 usePlot(1, document.getElementById('usePlot1'));
 usePlot(2, document.getElementById('usePlot2'));
 usePlot(3, document.getElementById('usePlot3'));

@@ -12,7 +12,7 @@ button {
 	display: inline-block;
 	margin: 8px;
 }
-label, input {
+label, input, select {
 	margin: 8px;
 }
 input.small {

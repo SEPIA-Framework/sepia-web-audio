@@ -6,28 +6,28 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>SEPIA Web Audio Processor Test</title>
 
-	<script src="src/visualization/uPlot.iife.min.js"></script>
-	<script src="src/visualization/uPlot-lazy.min.js"></script>
-	<script src="src/visualization/uPlot-lazy-heatmap.min.js"></script>
-	<link rel="stylesheet" href="src/visualization/uPlot.min.css">
+	<script src="src/visualization/uPlot.iife.min.js?v=1.5.2"></script>
+	<script src="src/visualization/uPlot-lazy.min.js?v=0.9.2"></script>
+	<script src="src/visualization/uPlot-lazy-heatmap.min.js?v=0.9.2"></script>
+	<link rel="stylesheet" href="src/visualization/uPlot.min.css?v=1.5.2">
 
-	<script src="src/polyfills/audioworklet-polyfill.js"></script>
-	<script type="text/javascript" src="src/sepia-web-audio.js"></script>
+	<!--<script src="src/polyfills/audioworklet-polyfill.js"></script>-->
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.6"></script>
 	<script>
 		//set correct modules folder
 		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
 	</script>
 	
-	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
-	<script type="text/javascript" src="src/resources/opus-file-splitter.js"></script>
-	<script type="text/javascript" src="src/resources/fir-filter-resampler.js"></script>
+	<script type="text/javascript" src="src/resources/pcm-convert.js?v=0.9.6"></script>
+	<script type="text/javascript" src="src/resources/opus-file-splitter.js?v=0.9.6"></script>
+	<script type="text/javascript" src="src/resources/fir-filter-resampler.js?v=0.9.6"></script>
 	
-	<link rel="stylesheet" type="text/css" href="tests.css">
+	<link rel="stylesheet" type="text/css" href="tests.css?v=0.9.6">
 	<style></style>
 </head>
 <body>
 <div id="mainView">
-	<h1>SEPIA Web Audio Processor</h1>
+	<h1>SEPIA Web Audio Processor - Module Tests</h1>
 	<div id="info">Info: []</div>
 	<div id="status"></div>
 	<div>
@@ -37,100 +37,96 @@
 		<button onclick="releaseRecorder(this);">Release</button>
 	</div>
 	<div id="inputSourceOptions" class="contorlGroup center">
-		<label>Target Sample-Rate:</label><select id="sampleRateSelector">
+		<div><label>Target Sample-Rate:</label><select id="sampleRateSelector">
 			<option value="" selected>Auto</option>
 			<option value="8000">8000</option>
 			<option value="16000">16000</option>
 			<option value="44000">44100</option>
 			<option value="48000">48000</option>
 			<option value="96000">96000</option>
-		</select>
-		<label>Audio Source:</label><select id="sourceTypeSelector" onchange="inputSourceChanged(this);">
+		</select></div>
+		<div><label>Audio Source:</label><select id="sourceTypeSelector" onchange="inputSourceChanged(this);">
 			<option value="mic" selected>Microphone</option>
 			<option value="whiteNoise">White-Noise Generator</option>
 			<option value="file1">File Stream 1</option>
 			<option value="file2">File Stream 2</option>
 			<option value="legacySpMic">Legacy Script-Processor Mic</option>
-		</select>
+		</select></div>
 		<div id="micOptions" class="contorlGroup">
-			<label><b>Mic Options</b></label>
-			<label>deviceId (label):</label><select id="micDeviceId" onchange="setMicOption('deviceId', this.value);"><option value="" selected>Default</option></select>
-			<label>sampleRate:</label><input id="micSampleRate" style="width: 54px;" value="48000" onchange="setMicOption('sampleRate', +this.value);">
-			<label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption('channelCount', +this.value);">
-			<label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption('noiseSuppression', this.checked);">
-			<label>autoGainControl:</label><input id="micAutoGainControl" type="checkbox" checked onchange="setMicOption('autoGainControl', this.checked);">
-			<label>echoCancellation:</label><input id="micEchoCancellation" type="checkbox" checked onchange="setMicOption('echoCancellation', this.checked);">
+			<!-- created dynamically in code to show only supported -->
 		</div>
+	</div>
+	<div class="contorlGroup">
+		<label><b>Modules:</b></label>
+		<div><label>Volume-proc.:</label><input type="checkbox" id="useVolumeProcessor" checked onchange="useVolumeProcessor(this.checked);"></div>
+		<div><label>Resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);"></div>
+		<div><label>Wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);"></div>
+		<div><label>VAD (SEPIA):</label><input type="checkbox" id="useVadWorker" checked onchange="useVadWorker(this.checked);"></div>
+		<div><label>Wake-Word:</label><input type="checkbox" id="useWakeWordWorker" onchange="useWakeWordWorker(this.checked);"></div>
 	</div>
 	<div id="logMessages">- Log -</div>
 	<div id="volumeMeterControls" class="contorlGroup">
 		<label><b>Volume-Processor</b></label>
-		<label>Gain:</label><input id="volumeMeterGain" class="small" type="number" value="1.0" onchange="setVolumeGain(+this.value);">
-		<label>FPS:</label><input id="volumeMeterFps" class="small" value="40" onchange="setVolumeProcFps(+this.value);">
-		<label>Meter:</label><div id="volumeMeterNodeOutput"><div></div></div>
+		<div><label>Gain:</label><input id="volumeMeterGain" class="small" type="number" value="1.0" onchange="setVolumeGain(+this.value);"></div>
+		<div><label>FPS:</label><input id="volumeMeterFps" class="small" value="40" onchange="setVolumeProcFps(+this.value);"></div>
+		<div style="display: inline-flex; align-items: center;"><label>Meter:</label><div id="volumeMeterNodeOutput"><div></div></div></div>
 	</div>
 	<div id="resamplerControls" class="contorlGroup">
 		<label><b>Resampler (Speex WASM)</b></label>
-		<label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000">
-		<label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"><div style="flex: 1 0 100%;"></div>
-		<label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)">
+		<div><label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000"></div>
+		<div><label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"></div>
+		<div><label>Quality:</label><input id="resampleQuality" class="small" value="3" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)"></div>
 		<div id="resamplerGainBox" class="slidecontainer" style="display: none;">
 			<label>Gain:</label><input id="resamplerGain" type="range" min="1" max="50" step="1" value="1" class="slider"><input type="number" id="resamplerGainShow" class="small">
 		</div>
 	</div>
 	<div id="basicBufferControls" class="contorlGroup" style="display:none;">
 		<label><b>Basic Buffer</b></label>
-		<label>Buffer-Size:</label><input id="basicBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512">
+		<div><label>Buffer-Size:</label><input id="basicBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"></div>
 	</div>
 	<div id="vadWorkerControls" class="contorlGroup">
 		<label><b>VAD</b></label>
-		<label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="512" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);">
-		<label>Mode:</label><input id="vadWorkerVadMode" class="small" value="3" placeholder="1-3 (3: agressive)" onchange="setVadWorkerVadMode(+this.value);">
+		<div><label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="512" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);"></div>
+		<div><label>Mode:</label><input id="vadWorkerVadMode" class="small" type="number" value="1" placeholder="1-3 (3: agressive)" onchange="setVadWorkerVadMode(+this.value);"></div>
+		<div><label>Threshold:</label><input id="vadWorkerVadThreshold" class="small" type="number" value="0" step="0.1" title="e.g. ~1.3 (mode 1) or ~4 (mode 2-3)" onchange="setVadWorkerVadThreshold(+this.value);"></div>
 	</div>
 	<div id="wakeWordWorkerControls" class="contorlGroup">
 		<label><b>Wake-Word</b></label>
-		<label>Buffer-Size:</label><input disabled placeholder="same as input atm.">
-		<label>Sensitivity:</label><input id="wakeWordSensitivity" class="small" type="number" value="0.7" max="1" min="0" step="0.1" placeholder="0=low, 1=high" onchange="setWakeWordSensitivity(+this.value);">
-		<label>Porcupine Version:</label><select id="porcupineVersionSelect" onchange="setPorcupineVersion(+this.value);">
+		<div><label>Buffer-Size:</label><input disabled placeholder="same as input atm."></div>
+		<div><label>Sensitivity:</label><input id="wakeWordSensitivity" class="small" type="number" value="0.7" max="1" min="0" step="0.1" placeholder="0=low, 1=high" onchange="setWakeWordSensitivity(+this.value);"></div>
+		<div><label>Porcupine Version:</label><select id="porcupineVersionSelect" onchange="setPorcupineVersion(+this.value);">
 			<option value="14" selected>v1.4</option>
 			<option value="19">v1.9</option>
-		</select><div style="flex: 1 0 100%;"></div>
-		<label>Gate:</label><div id="wakeWordGateState"></div><label></label>
-		<label>Control:</label><button onclick="wakeWordSetGate('open');">Listen</button><button onclick="wakeWordSetGate('close');">Stop</button><label></label>
+		</select></div>
+		<div style="display: inline-flex; align-items: center;"><label>Gate:</label><div id="wakeWordGateState"></div><label></label></div>
+		<div><label>Control:</label><button onclick="wakeWordSetGate('open');">Listen</button><button onclick="wakeWordSetGate('close');">Stop</button><label></label></div>
 	</div>
 	<div id="waveEncoderControls" class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
-		<label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="0" onchange="setWaveEncoderLookback(this);">
-		<label>Record Max. (ms):</label><input id="waveEncoderRecordMax" class="small" value="6000" onchange="setWaveEncoderRecordMax(this);"><div style="flex: 1 0 100%;"></div>
-		<label>Gate:</label><div id="waveEncoderGateState"></div><label></label>
-		<label>Control:</label><button onclick="waveEncoderSetGate('open');">Capture</button><button onclick="waveEncoderSetGate('close');">Stop</button><label></label>
-		<label>Export:</label><button onclick="waveEncoderGetWave();">Get Wave-File</button>
-		<button onclick="waveEncoderGetBuffer();">Show Buffer</button>
+		<div><label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="0" onchange="setWaveEncoderLookback(this);"></div>
+		<div><label>Record Max. (ms):</label><input id="waveEncoderRecordMax" class="small" value="6000" onchange="setWaveEncoderRecordMax(this);"></div>
+		<div style="display: inline-flex; align-items: center;"><label>Gate:</label><div id="waveEncoderGateState"></div><label></label></div>
+		<div><label>Control:</label><button onclick="waveEncoderSetGate('open');">Capture</button><button onclick="waveEncoderSetGate('close');">Stop</button><label></label></div>
+		<div><label>Export:</label><button onclick="waveEncoderGetWave();">Get Wave-File</button><button onclick="waveEncoderGetBuffer();">Show Buffer</button></div>
 	</div>
 	<div id="mediaRecorderControls" class="contorlGroup" style="display:none;">
 		<label><b>Media Recorder</b></label>
-		<label>Codec/format:</label><select id="mediaRecorderCodec"><option value="" selected>Default</option></select>
-		<label>Realtime Decoding:</label><input id="mediaRecorderDecode" type="checkbox">
-		<label>Record Max. (ms):</label><input id="mediaRecorderRecordMax" class="small" value="6000"><div style="flex: 1 0 100%;"></div>
-		<label>Control:</label><button onclick="startMediaRecorder();">Capture</button><button onclick="stopMediaRecorder();">Stop</button>
-		<label>Export:</label><button onclick="getRawDataFromMediaRecorder();">Show Decoded Data</button>
+		<div><label>Codec/format:</label><select id="mediaRecorderCodec"><option value="" selected>Default</option></select></div>
+		<div><label>Realtime Decoding:</label><input id="mediaRecorderDecode" type="checkbox"></div>
+		<div><label>Record Max. (ms):</label><input id="mediaRecorderRecordMax" class="small" value="6000"></div>
+		<div><label>Control:</label><button onclick="startMediaRecorder();">Capture</button><button onclick="stopMediaRecorder();">Stop</button></div>
+		<div><label>Export:</label><button onclick="getRawDataFromMediaRecorder();">Show Decoded Data</button></div>
 	</div>
 	<div class="contorlGroup">
-		<label><b>Switches:</b></label>
+		<label><b>Show plots:</b></label>
 		<div style="flex: 1 0 100%;"></div>
-		<label>Volume-proc.:</label><input type="checkbox" id="useVolumeProcessor" checked onchange="useVolumeProcessor(this.checked);">
-		<label>Resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);">
-		<label>Wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);">
-		<label>VAD:</label><input type="checkbox" id="useVadWorker" checked onchange="useVadWorker(this.checked);">
-		<label>Wake-Word:</label><input type="checkbox" id="useWakeWordWorker" checked onchange="useWakeWordWorker(this.checked);">
-		<div style="flex: 1 0 100%;"></div>
-		<label>Plot 1:</label><input type="checkbox" id="usePlot1" checked onchange="usePlot(1, this);">
-		<label>Plot 2:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);">
-		<label>Plot 3:</label><input type="checkbox" id="usePlot3" onchange="usePlot(3, this);">
-		<label>Plot 4:</label><input type="checkbox" id="usePlot4" checked onchange="usePlot(4, this);">
-		<label>Heatmap 1:</label><input type="checkbox" id="useHeatmap1" onchange="useHeatmap(1, this);">
+		<!--<div><label>Plot 1:</label><input type="checkbox" id="usePlot1" onchange="usePlot(1, this);"></div>-->
+		<div><label>Volume RMS:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);"></div>
+		<div><label>VAD:</label><input type="checkbox" id="usePlot3" onchange="usePlot(3, this);"></div>
+		<div><label>VAD Energy:</label><input type="checkbox" id="usePlot4" checked onchange="usePlot(4, this);"></div>
+		<div><label>VAD Mfcc:</label><input type="checkbox" id="useHeatmap1" checked onchange="useHeatmap(1, this);"></div>
 	</div>
-	<div id="chart1" class="chart"></div>
+	<!--<div id="chart1" class="chart"></div>-->
 	<div id="chart2" class="chart"></div>
 	<div id="chart3" class="chart" style="display: none;"></div>
 	<div id="chart4" class="chart"></div>
@@ -320,7 +316,8 @@
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
 						lookbackBufferMs: waveEncoderLookback,
 						//recordBufferLimitKb: 600,
-						recordBufferLimitMs: waveEncoderRecordMax
+						recordBufferLimitMs: waveEncoderRecordMax,
+						isFloat32: (doUseResampler? false : true)
 					}
 				}
 			}
@@ -329,7 +326,7 @@
 		var waveEncoderIndex;
 		
 		var vadWorker = {
-			name: 'sepia-vad-worker', //'webrtc-vad-worker',
+			name: 'sepia-vad-worker', //More traditional version: 'webrtc-vad-worker',
 			type: 'worker',
 			settings: {
 				onmessage: setVoiceActivity,
@@ -340,6 +337,7 @@
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
 						bufferSize: vadWorkerBufferSize,
 						vadMode: vadWorkerVadMode,
+						vadThreshold: vadWorkerVadThreshold,
 						//voiceEnergyCap: 50,
 						//voiceEnergyDropRate: 2,
 						sequence: {
@@ -360,7 +358,7 @@
 			name: 'porcupine-wake-word-worker',
 			type: 'worker',
 			preLoad: {
-				wasmFile: (porcupineVersion == 14? 'src/modules/picovoice/porcupine-14.wasm' : 'src/modules/picovoice/porcupine-19.wasm')
+				wasmFile: ('src/modules/picovoice/porcupine-' + porcupineVersion + '.wasm')
 			},
 			settings: {
 				onmessage: onWakeWordMessage,
@@ -474,12 +472,12 @@
 	//Input source options
 	
 	var micAudioConstraintOptionElements = {
-		deviceId: '<label>deviceId (label):</label><select id="micDeviceId" onchange="setMicOption(\'deviceId\', this.value);"><option value="" selected>Default</option></select>',
-		//sampleRate: '<label>sampleRate:</label><input id="micSampleRate" style="width: 54px;" value="48000" onchange="setMicOption(\'sampleRate\', +this.value);">',
-		channelCount: '<label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption(\'channelCount\', +this.value);">',
-		noiseSuppression: '<label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption(\'noiseSuppression\', this.checked);">',
-		autoGainControl: '<label>autoGainControl:</label><input id="micAutoGainControl" type="checkbox" onchange="setMicOption(\'autoGainControl\', this.checked);">',
-		echoCancellation: '<label>echoCancellation:</label><input id="micEchoCancellation" type="checkbox" onchange="setMicOption(\'echoCancellation\', this.checked);">'
+		deviceId: '<div><label>deviceId (label):</label><select id="micDeviceId" onchange="setMicOption(\'deviceId\', this.value);"><option value="" selected>Default</option></select></div>',
+		//sampleRate: '<div><label>sampleRate:</label><input id="micSampleRate" style="width: 54px;" value="48000" onchange="setMicOption(\'sampleRate\', +this.value);"></div>',
+		channelCount: '<div><label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption(\'channelCount\', +this.value);"></div>',
+		noiseSuppression: '<div><label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption(\'noiseSuppression\', this.checked);"></div>',
+		autoGainControl: '<div><label>autoGainControl:</label><input id="micAutoGainControl" type="checkbox" onchange="setMicOption(\'autoGainControl\', this.checked);"></div>',
+		echoCancellation: '<div><label>echoCancellation:</label><input id="micEchoCancellation" type="checkbox" onchange="setMicOption(\'echoCancellation\', this.checked);"></div>'
 	};
 	(function(){
 		var micO = document.getElementById("micOptions");
@@ -556,11 +554,9 @@
 	
 	function setVolume1(data){
 		//console.log(data);
-		if (data.rms != undefined){
-			plotData(data.rms, 1);
-			if (data.avg) setVolumeBar(data.avg);
-		}else{
-			console.log(data);
+		//if (data.rms != undefined){}
+		if (data.avg != undefined){
+			setVolumeBar(data.avg);
 		}
 		if (data.isClipped){
 			setVolumeBarClipped();
@@ -597,8 +593,10 @@
 	}
 	function setVoiceActivity(data){
 		//console.log("vad", data);
-		if (data.voiceLoudness != undefined && data.voiceLoudness.length == 1){
-			plotData([[data.voiceLoudness[0]/data.movingAvgLoudness], 1, [data.maxLoudness/data.movingAvgLoudness]], 3, true);	//[data.movingAvgLoudness]
+		if (data.voiceLoudness != undefined){
+			data.voiceLoudness.forEach(function(ld){
+				plotData([[ld - data.movingAvgLoudness], 0, [data.maxLoudness - data.movingAvgLoudness]], 3, true);	//[data.movingAvgLoudness]
+			});
 		}else if (data.voiceActivity != undefined){
 			plotData(data.voiceActivity, 3);
 		}
@@ -613,7 +611,7 @@
 				vadAutoActivateSequenceWasTrigger = false;
 				waveEncoderSetGate('open');
 			}
-			if (waveEncoderGateOpen && data.vadSequenceCode == 5){
+			if (data.vadSequenceCode == 5 && waveEncoderGateOpen){
 				if ((data.vadSequenceEnded - data.vadSequenceStarted) > vadMinRecordTimeAfterActivate){
 					waveEncoderSetGate('close');
 				}else{
@@ -623,22 +621,27 @@
 			if (waveEncoderGateOpen && vadAutoActivateSequenceWasTrigger && (data.vadSequenceCode == 3 || data.vadSequenceCode == 4 )){
 				waveEncoderSetGate('close');
 			}
+			//trigger data result
+			if (data.vadSequenceCode == 6){
+				console.log("vadSequenceCode=6", data);
+				addTitleToPage("VAD result group");
+				if (data.loudnessProfile){
+					//plotData(data.loudnessProfile);
+					plotData([data.loudnessProfile, createArrayWithStartValue(data.loudnessProfile.length, vadWorkerVadThreshold)], undefined, true);
+				}
+				if (data.featuresArray){
+					plotData(data.featuresArray[0]);
+					plotData(data.featuresArray[1]);
+					//plotData(data.featuresArray[2]);
+					drawHeatmap(data.featuresArray[2], undefined, data.featuresArray[2].length);
+				}
+				if (data.mfccProfile){
+					drawHeatmap(data.mfccProfile, undefined, data.mfccProfile.length);
+				}
+			}
 		}
 		if (useHeatmaps[1] && data.mfcc != undefined){
-			if (!heatmap1){
-				let colorIndex = 4;
-				heatmap1 = new uPlot.lazy.Heatmap(document.getElementById("heatmap1"), {
-					dataPixelWidth: 4,
-					dataPixelHeight: 4,
-					colorIndex: colorIndex,
-					maxDataPoints: 150
-				});
-				heatmaps[1] = heatmap1;
-			}
-			data.mfcc.forEach(function(d, i){
-				heatmap1.addDataArray(d);
-			});
-			heatmap1.draw();
+			drawHeatmap(data.mfcc, 1, 150);
 		}
 	}
 	var heatmap1;
@@ -684,6 +687,7 @@
 			document.getElementById("volumeMeterControls").style.display = "none";
 		}
 	}
+	useVolumeProcessor(doUseVolumeProcessor);
 	
 	var doUseResampler = document.getElementById("useResampler").checked;
 	var resamplerSampleRate = +document.getElementById("resamplerSampleRate").value; 	//e.g. 16000;
@@ -725,6 +729,7 @@
 			document.getElementById("basicBufferControls").style.display = "";
 		}
 	}
+	useResampler(doUseResampler);
 	
 	var doUseWaveEncoder = document.getElementById("useWaveEncoder").checked;
 	var waveEncoderLookback = +document.getElementById("waveEncoderLookback").value; 	//e.g. 0;
@@ -794,15 +799,20 @@
 			showMediaRecorderCodecs();
 		}
 	}
+	useWaveEncoder(doUseWaveEncoder);
 
 	var doUseVadWorker = document.getElementById("useVadWorker").checked;
-	var vadWorkerBufferSize = +document.getElementById("vadWorkerBufferSize").value; 	//e.g. 960;
-	var vadWorkerVadMode = +document.getElementById("vadWorkerVadMode").value; 			//e.g. 3;
+	var vadWorkerBufferSize = +document.getElementById("vadWorkerBufferSize").value; 	//e.g. 512 (Meyda) or 960 (WebRTC);
+	var vadWorkerVadMode = +document.getElementById("vadWorkerVadMode").value; 				//e.g. 3;
+	var vadWorkerVadThreshold = +document.getElementById("vadWorkerVadThreshold").value; 	//e.g. 4 (Meyda only, mode 1: 1.3, mode 2-n: 3-4;
 	function setVadWorkerBufferSize(val){
 		vadWorkerBufferSize = val;
 	}
 	function setVadWorkerVadMode(val){
 		vadWorkerVadMode = val;
+	}
+	function setVadWorkerVadThreshold(val){
+		vadWorkerVadThreshold = val;
 	}
 	function useVadWorker(useIt){
 		doUseVadWorker = useIt;
@@ -812,6 +822,7 @@
 			document.getElementById("vadWorkerControls").style.display = "none";
 		}
 	}
+	useVadWorker(doUseVadWorker);
 	
 	var doUseWakeWordWorker = document.getElementById("useWakeWordWorker").checked;
 	var wakeWordGate = document.getElementById('wakeWordGateState');
@@ -841,6 +852,7 @@
 			document.getElementById("wakeWordWorkerControls").style.display = "none";
 		}
 	}
+	useWakeWordWorker(doUseWakeWordWorker);
 	
 	function showMediaRecorderCodecs(){
 		//add codec options
