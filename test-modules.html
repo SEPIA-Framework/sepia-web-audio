@@ -262,8 +262,9 @@
 						targetSampleRate: resamplerSampleRate, 	//16000,
 						resampleQuality: resamplerQuality, 		//7,
 						bufferSize: resamplerBufferSize, 		//512,
-						passThroughMode: 1,		//0: none, 1: original (float32), 2: 16Bit PCM - NOTE: NOT resampled
-						calculateRmsVolume: true
+						calculateRmsVolume: true,
+						//gain: +resamplerGain.value,	//we can use this here but we have 'volumeProcessor' already ^^
+						passThroughMode: 1		//0: none, 1: original (float32), 2: 16Bit PCM - NOTE: NOT resampled
 					}
 				}
 			}
@@ -281,7 +282,7 @@
 						resampleQuality: resamplerQuality, 		//7,
 						bufferSize: resamplerBufferSize, 		//512,		//TODO: set correct value (or replace with ratio?)
 						calculateRmsVolume: true,
-						gain: +resamplerGain.value		//TODO: keep?
+						gain: +resamplerGain.value		//for the worker we keep it (because vol. is probably disabled)
 					}
 				}
 			}
