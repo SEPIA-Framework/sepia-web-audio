@@ -18,9 +18,11 @@ Available modules:
 
 ## Tutorial
 
-UNDER CONSTRUCTION  - Please check out the test pages for more examples.
+UNDER CONSTRUCTION  - Please check out the test pages for more examples.  
+  
+Full tutorial code can be found at: [tutorial-test-page.html](tutorial-test-page.html)
 
-### Basic interface
+### Part 1: Basic setup and single buffer module
 
 #### Import library and modules
 
@@ -97,7 +99,7 @@ After we're done we stop with `processor.stop()` and look out for `onaudioend`.
   
 If we don't want to restart later we can close the processor and clean up resources with `processor.release()`.
 
-### Resample input and record raw 16Bit PCM mono audio (WAV)
+### Part 2: Resample input and record raw 16Bit PCM mono audio (WAV)
 
 A very common use-case for this library is to resample microphone input and encode it as 16Bit PCM mono data (which is basically the default WAV file format).  
 To make this happen we will replace the buffer module from earlier with a resampler and wave encoder module.  
@@ -188,11 +190,18 @@ waveEncoder.handle.sendToModule({request: {get: "wave"}});		//encoded WAV
 waveEncoder.handle.sendToModule({request: {get: "buffer"}});	//raw int16 buffer
 ```
 
-Just for fun we can add the generated WAV to our page (body) like this:
+Using the module interface an optimized 'waveEncoderCallback' (defined in module above) could look like this:
 
 ```javascript
 //modified 'waveEncoderCallback':
 function waveEncoderCallback(data){
+	if (data.gate && data.gate.isOpen === false){
+		//stop processor
+		processor.stop();
+		//get data
+		waveEncoder.handle.sendToModule({request: {get: "wave"}});
+		waveEncoder.handle.sendToModule({request: {get: "buffer"}});
+	}
 	if (data.output && data.output.wav){
 		//just for fun, add WAV to page:
 		var targetEle = document.body;

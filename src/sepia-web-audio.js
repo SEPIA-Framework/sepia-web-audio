@@ -178,7 +178,7 @@ if (!(typeof SepiaFW == "object")){
 			if (!mainAudioContext || mainAudioContext.state == "closed"){
 				//TODO: clean up old context and sources?
 				mainAudioContext = WebAudio.createAudioContext(options, ignoreOptions);
-				if (options.startSuspended){
+				if (options.startSuspended == undefined || options.startSuspended){
 					try { await mainAudioContext.resume(); } catch(error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await mainAudioContext.suspend();
 				}else{
@@ -826,7 +826,7 @@ if (!(typeof SepiaFW == "object")){
 		if (!asyncCreateOrUpdateAudioContext){
 			asyncCreateOrUpdateAudioContext = async function(forceNew, ignoreOptions){
 				var audioContext = WebAudio.createAudioContext(options, ignoreOptions);
-				if (options.startSuspended){
+				if (options.startSuspended == undefined || options.startSuspended){
 					try { await audioContext.resume(); } catch (error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await audioContext.suspend();
 				}else{
