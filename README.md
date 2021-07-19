@@ -18,7 +18,7 @@ Available modules:
 
 ## Tutorial
 
-UNDER CONSTRUCTION  - Please check out the test pages for more examples.  
+UNDER CONSTRUCTION  - Please check out the demo and test pages for more examples.  
   
 Full tutorial code can be found at: [tutorial-test-page.html](tutorial-test-page.html)
 
