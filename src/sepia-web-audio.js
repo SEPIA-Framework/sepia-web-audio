@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.6";
+	WebAudio.version = "0.9.7";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -710,7 +710,7 @@ if (!(typeof SepiaFW == "object")){
 				
 			}).then(function(){
 				//continue with source handler
-				sourceHandler(micRes.source, {}, micRes.info);
+				sourceHandler(micRes.source, micRes.controls || {}, micRes.info);
 				
 			}).catch(function(err){
 				if (typeof err == "string"){
@@ -880,17 +880,34 @@ if (!(typeof SepiaFW == "object")){
 					}
 					
 					var info = { type: "mic" };
+					var track0;
 					if (source.mediaStream && source.mediaStream.getAudioTracks){
 						try {
-							var track0 = source.mediaStream.getAudioTracks()[0];
+							track0 = source.mediaStream.getAudioTracks()[0];
 							info.label = track0.label;
 							if (track0.getSettings) info.settings = track0.getSettings();
 							else info.settings = {};
 							info.settings.sampleRate = audioContext.sampleRate;
 						}catch(e){};
 					}
+
+					var controlEvents = {
+						//onBeforeStart, onAfterStart, onBeforeStop, onAfterStop, onBeforeRelease, onAfterRelease
+						onBeforeStart: function(){},
+						onAfterStop: function(){},
+						onAfterRelease: function(){
+							//release mic resources
+							if (track0 && typeof track0.stop == "function" && track0.readyState == "live"){
+								track0.stop();
+							}
+						}
+					}
 					
-					return resolve({source: source, info: info});
+					return resolve({
+						source: source,
+						controls: controlEvents,
+						info: info
+					});
 					
 				}).catch(function(err){
 					return reject(err);
@@ -1078,10 +1095,28 @@ if (!(typeof SepiaFW == "object")){
 				type: "scriptProcessor",
 				typeData: res.info,
 				hasWorkletSupport: false, 	//does not fit into audio processing thread (normal worklets)
-				//TODO: ?!?
-				start: function(){},
-				stop: function(){},
-				release: function(){}
+				start: function(){
+					//overwrites afterStart
+					if (res.controls.onAfterStart) res.controls.onAfterStart();
+				},
+				stop: function(){
+					//overwrites beforeStop
+					if (res.controls.onBeforeStop) res.controls.onBeforeStop();
+				},
+				release: function(){
+					//overwrites afterRelease
+					if (res.controls.onAfterRelease) res.controls.onAfterRelease();
+				}
+				//TODO: implement more?!?
+			}
+			//remaining controlEvents - beforeStart, afterStart, beforeStop, afterStop, beforeRelease, afterRelease
+			if (res.controls){
+				if (res.controls.onBeforeStart) customSource.beforeStart = res.controls.onBeforeStart;
+				//if (res.controls.onAfterStart) customSource.afterStart = res.controls.onAfterStart;
+				//if (res.controls.onBeforeStop) customSource.beforeStop = res.controls.onBeforeStop;
+				if (res.controls.onAfterStop) customSource.afterStop = res.controls.onAfterStop;
+				if (res.controls.onBeforeRelease) customSource.beforeRelease = res.controls.onBeforeRelease;
+				//if (res.controls.onAfterRelease) customSource.afterRelease = res.controls.onAfterRelease;
 			}
 
 			if (options.onaudioprocess){
