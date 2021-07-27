@@ -588,7 +588,7 @@ if (!(typeof SepiaFW == "object")){
 				.then(startCallback)
 				.catch(function(err){
 					onProcessorError({name: "ProcessorStartError", message: (err.name + " - Message: " + (err.message || err))});
-					errorCallback(err);
+					if (errorCallback) errorCallback(err);
 				});
 			}
 			//STOP
@@ -611,7 +611,7 @@ if (!(typeof SepiaFW == "object")){
 				.then(stopCallback)
 				.catch(function(err){
 					onProcessorError({name: "ProcessorStopError", message: (err.name + " - Message: " + (err.message || err))});
-					errorCallback(err);
+					if (errorCallback) errorCallback(err);
 				});
 			}
 			//RELEASE
@@ -637,7 +637,7 @@ if (!(typeof SepiaFW == "object")){
 				.then(releaseCallback)
 				.catch(function(err){
 					onProcessorError({name: "ProcessorReleaseError", message: (err.name + " - Message: " + (err.message || err))});
-					errorCallback(err);
+					if (errorCallback) errorCallback(err);
 				});
 			}
 			
