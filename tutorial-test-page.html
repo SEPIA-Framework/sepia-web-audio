@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>SEPIA Web Audio Input-Output Test</title>
+	<title>SEPIA Web Audio Tutorial Code</title>
 
 	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
 	<script>
@@ -17,16 +17,31 @@
 </head>
 <body>
 <div id="mainView">
-	<h1>SEPIA Web Audio Processor - Input/Output Tests</h1>
+	<h1>SEPIA Web Audio Processor - Tutorial Code</h1>
+	<p>This page simply demonstrates some tutorial code as described in the README. Please see 'console.log/error' in dev tools for more events and info.</p>
 	<div>
-		<button onclick="tutorialPart1();">Tutorial Part 1</button>
-		<button onclick="tutorialPart2();">Tutorial Part 2</button>
+		<button onclick="tutorialPart1();">Tutorial Part 1 - Buffer Processing (3s)</button>
+		<button onclick="tutorialPart2();">Tutorial Part 2 - Resample and WAV encode (4s)</button>
+		<button onclick="window.location.reload();">Reload page</button>
 	</div>
+	<textarea id="info" style="width: 100%; min-height: 150px;"></textarea>
 </div>
 <script type='text/javascript'>
+	//logging
+	var infoBox = document.getElementById("info");
+	function addInfo(msg){
+		infoBox.textContent += "\n" + msg;
+		infoBox.scrollTop = infoBox.scrollHeight;
+	}
+	function setInfo(msg){
+		infoBox.textContent = msg;
+		infoBox.scrollTop = infoBox.scrollHeight;
+	}
 	
 	//Tutorial Part 1
 	function tutorialPart1(){
+		setInfo("Tutorial 1");
+		
 		var myModules = [];
 
 		function bufferCallback(data){
@@ -47,15 +62,29 @@
 		});
 		
 		var processor = new SepiaFW.webAudio.Processor({
-			onaudiostart: function(){ console.log("onaudiostart", arguments); },
-			onaudioend: function(){ console.log("onaudioend", arguments); },
-			onrelease: function(){ console.log("onrelease", arguments); },
-			onerror: function(){ console.error("onerror", arguments); },
+			onaudiostart: function(){ 
+				console.log("onaudiostart", arguments);
+				addInfo("STARTED");
+			},
+			onaudioend: function(){ 
+				console.log("onaudioend", arguments); 
+				addInfo("END");
+			},
+			onrelease: function(){
+				console.log("onrelease", arguments);
+				addInfo("RELEASED");
+			},
+			onerror: function(){
+				console.error("onerror", arguments);
+				addInfo("RUNTIME ERROR - Check console");
+				processor.stop();
+			},
 			modules: myModules
 			
 		}, function(info){
 			//Processor ready
 			console.log(info); //Use 'info' to get details about source, sample-rate etc.
+			addInfo("READY");
 			//start
 			processor.start();
 			//wait 3s
@@ -71,11 +100,14 @@
 		}, function(err){
 			//Initialization error
 			console.error(err);
+			addInfo("INIT. ERROR - Check console");
 		});
 	}
 	
 	//Tutorial Part 2
 	function tutorialPart2(){
+		setInfo("Tutorial 2");
+		
 		SepiaFW.webAudio.tryNativeStreamResampling = false;		//global option
 
 		var myModules = [];
@@ -154,18 +186,28 @@
 		var processor = new SepiaFW.webAudio.Processor({
 			onaudiostart: function(){ 
 				console.log("onaudiostart", arguments);
+				addInfo("STARTED");
 				waveEncoder.handle.sendToModule({gate: "open"});
 			},
 			onaudioend: function(){ 
-				console.log("onaudioend", arguments); 
+				console.log("onaudioend", arguments);
+				addInfo("END");
 			},
-			onrelease: function(){ console.log("onrelease", arguments); },
-			onerror: function(){ console.error("onerror", arguments); },
+			onrelease: function(){
+				console.log("onrelease", arguments);
+				addInfo("RELEASED");
+			},
+			onerror: function(){
+				console.error("onerror", arguments);
+				addInfo("RUNTIME ERROR - Check console");
+				processor.stop();
+			},
 			modules: myModules
 			
 		}, function(info){
 			//Processor ready
 			console.log(info); //Use 'info' to get details about source, sample-rate etc.
+			addInfo("READY");
 			//start
 			processor.start();
 			//wait 4s
@@ -177,6 +219,7 @@
 		}, function(err){
 			//Initialization error
 			console.error(err);
+			addInfo("INIT. ERROR - Check console");
 		});
 	}
 </script>

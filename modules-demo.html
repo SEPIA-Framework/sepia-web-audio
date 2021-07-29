@@ -61,10 +61,16 @@
 		<div><label>Volume-proc.:</label><input type="checkbox" id="useVolumeProcessor" checked onchange="useVolumeProcessor(this.checked);"></div>
 		<div><label>Resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);"></div>
 		<div><label>Wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);"></div>
-		<div><label>VAD (SEPIA):</label><input type="checkbox" id="useVadWorker" checked onchange="useVadWorker(this.checked);"></div>
+		<div><label>VAD:</label><select id="vadWorkerSelect" onchange="setVadWorker(this.value);">
+			<option value="">off</option><option value="webrtc-vad-worker">WebRTC</option><option value="sepia-vad-worker" selected>SEPIA + MFCC (Beta)</option>
+		</select></div>
 		<div><label>Wake-Word:</label><input type="checkbox" id="useWakeWordWorker" onchange="useWakeWordWorker(this.checked);"></div>
 	</div>
-	<div id="logMessages">- Log -</div>
+	<div style="position: relative;">
+		<div onclick="document.getElementById('logMessages').textContent='- Log -'" 
+			style="position:absolute; right:0; top:0; padding:0 3px; border-radius:0 0 0 3px; border:1px solid #000; background:#f1f1f1; cursor:pointer; font-size:12px;">x</div>
+		<div id="logMessages">- Log -</div>
+	</div>
 	<div id="volumeMeterControls" class="contorlGroup">
 		<label><b>Volume-Processor</b></label>
 		<div><label>Gain:</label><input id="volumeMeterGain" class="small" type="number" value="1.0" onchange="setVolumeGain(+this.value);"></div>
@@ -124,7 +130,7 @@
 		<div><label>Volume RMS:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);"></div>
 		<div><label>VAD:</label><input type="checkbox" id="usePlot3" onchange="usePlot(3, this);"></div>
 		<div><label>VAD Energy:</label><input type="checkbox" id="usePlot4" checked onchange="usePlot(4, this);"></div>
-		<div><label>VAD Mfcc:</label><input type="checkbox" id="useHeatmap1" checked onchange="useHeatmap(1, this);"></div>
+		<div><label>VAD Mfcc (only SEPIA):</label><input type="checkbox" id="useHeatmap1" checked onchange="useHeatmap(1, this);"></div>
 	</div>
 	<!--<div id="chart1" class="chart"></div>-->
 	<div id="chart2" class="chart"></div>
@@ -327,7 +333,7 @@
 		var waveEncoderIndex;
 		
 		var vadWorker = {
-			name: 'sepia-vad-worker', //More traditional version: 'webrtc-vad-worker',
+			name: vadWorkerName || 'sepia-vad-worker', 	//More traditional version: 'webrtc-vad-worker',
 			type: 'worker',
 			settings: {
 				onmessage: setVoiceActivity,
@@ -802,7 +808,8 @@
 	}
 	useWaveEncoder(doUseWaveEncoder);
 
-	var doUseVadWorker = document.getElementById("useVadWorker").checked;
+	var vadWorkerName = document.getElementById("vadWorkerSelect").value;
+	var doUseVadWorker = !!vadWorkerName;
 	var vadWorkerBufferSize = +document.getElementById("vadWorkerBufferSize").value; 	//e.g. 512 (Meyda) or 960 (WebRTC);
 	var vadWorkerVadMode = +document.getElementById("vadWorkerVadMode").value; 				//e.g. 3;
 	var vadWorkerVadThreshold = +document.getElementById("vadWorkerVadThreshold").value; 	//e.g. 4 (Meyda only, mode 1: 1.3, mode 2-n: 3-4;
@@ -823,7 +830,11 @@
 			document.getElementById("vadWorkerControls").style.display = "none";
 		}
 	}
-	useVadWorker(doUseVadWorker);
+	function setVadWorker(nuVadWorkerName){
+		useVadWorker(!!nuVadWorkerName);
+		vadWorkerName = nuVadWorkerName;
+	}
+	setVadWorker(vadWorkerName);
 	
 	var doUseWakeWordWorker = document.getElementById("useWakeWordWorker").checked;
 	var wakeWordGate = document.getElementById('wakeWordGateState');

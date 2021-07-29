@@ -80,14 +80,16 @@ function useHeatmap(index, ele){
 var useHeatmaps = {};
 var heatmaps = {};
 if (window.uPlot && uPlot.lazy && uPlot.lazy.Heatmap){
-	heatmaps = {
-		1: new uPlot.lazy.Heatmap(document.getElementById('heatmap1'), {
-			dataPixelWidth: 4,
-			dataPixelHeight: 4,
-			colorIndex: 4,
-			maxDataPoints: 150
-		})
-	};
+	if (document.getElementById('heatmap1')){
+		heatmaps = {
+			1: new uPlot.lazy.Heatmap(document.getElementById('heatmap1'), {
+				dataPixelWidth: 4,
+				dataPixelHeight: 4,
+				colorIndex: 4,
+				maxDataPoints: 150
+			})
+		};
+	}
 }
 usePlot(1, document.getElementById('usePlot1'));
 usePlot(2, document.getElementById('usePlot2'));
@@ -160,4 +162,29 @@ function createArrayWithStartValue(n, startValue){
 		array[i] = startValue;
 	}
 	return array;
+}
+
+function createModal(content, width, maxWidth){
+	var layer = document.createElement("div");
+	layer.className = "modal-layer";
+	var modal = document.createElement("div");
+	modal.className = "modal-box";
+	if (width) modal.style.width = width;
+	if (maxWidth) modal.style.maxWidth = maxWidth;
+	if (typeof content == "string"){
+		modal.innerHTML = content;
+	}else{
+		modal.appendChild(content);
+	}
+	document.body.appendChild(layer);
+	layer.appendChild(modal);
+	modal.closeModal = function(){
+		layer.parentNode.removeChild(layer);
+	}
+	layer.addEventListener("click", function(e){
+		if (e.target == layer){
+			modal.closeModal();
+		}
+	});
+	return modal;
 }

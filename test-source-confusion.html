@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>SEPIA Web Audio Input-Output Test</title>
+
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
+	<script>
+		//set correct modules folder
+		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+	</script>
+	
+	<link rel="stylesheet" type="text/css" href="tests.css?v=0.9.7">
+	<style></style>
+</head>
+<body>
+<div id="mainView">
+	<h1>SEPIA Web Audio - Input/Output Tests</h1>
+	<p>Here you can test interference between input-output channels and output-source confusion (typically an issue on mobile browsers).</p>
+	<div>
+		<button onclick="test1();">Test 1 - Open Basic Mic</button>
+		<button onclick="test2();">Test 2 - Open SEPIA Mic</button>
+		<button onclick="test3();">Test 3 - Start Web Speech</button>
+		<button onclick="closeAll();">Close All</button>
+		<button onclick="window.location.reload();">Reload page</button>
+	</div>
+	<div>
+		<p>Audio-Output Tests:</p>
+		<audio id="audio-player-1" src="test-sounds/chatter_counting.ogg" controls="controls"></audio>
+		<audio id="audio-player-2" src="test-sounds/traffic_counting.ogg" controls="controls"></audio>
+	</div>
+	<!--<div id="info" style="white-space: pre;"></div>-->
+	<textarea id="info" style="width: 100%; min-height: 150px;"></textarea>
+</div>
+<script type='text/javascript'>
+	var infoBox = document.getElementById("info");
+	var audioStuff = {};
+	audioStuff.ctx = undefined;
+	audioStuff.info = undefined;
+	audioStuff.proc = undefined;
+	audioStuff.rec = undefined;
+	
+	function addInfo(msg){
+		infoBox.textContent += "\n" + msg;
+		rescaleInfoEle();
+	}
+	function setInfo(msg){
+		infoBox.textContent = msg;
+		rescaleInfoEle();
+	}
+	function rescaleInfoEle(){
+		var bcr = infoBox.getBoundingClientRect();
+		var spaceAv = window.innerHeight - bcr.y;
+		infoBox.style.height = Math.max(150, Math.round(spaceAv) - 32) + "px";
+		infoBox.scrollTop = infoBox.scrollHeight;
+	}
+	rescaleInfoEle();
+	
+	function closeAll(){
+		var closeContextManually = true;
+		if (audioStuff.proc){
+			//TODO: release if possible
+			if (audioStuff.proc.isInitialized() && audioStuff.proc.isProcessing()){
+				audioStuff.proc.stop();
+				closeContextManually = false;
+			}
+		}else{
+			//TODO: note?
+		}
+		if (audioStuff.rec){
+			audioStuff.rec.stop();
+		}else{
+			//TODO: note?
+		}
+		if (closeContextManually && audioStuff.ctx && audioStuff.ctx.state == "running"){
+			audioStuff.ctx.close();
+			addInfo("CLOSED");
+		}else if (closeContextManually){
+			addInfo("NO context or already CLOSED");
+		}
+	}
+	
+	//Mic - Low-Level
+	function test1(){
+		setInfo("Loading mic...");
+		//context
+		var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+		audioStuff.ctx = audioContext;
+		//userMedia
+		var audioVideoConstraints = { 
+			video : false, audio: true
+		};
+		navigator.mediaDevices.getUserMedia(audioVideoConstraints).then(async function(stream){
+			var source = audioContext.createMediaStreamSource(stream);
+			var destinationNode = audioContext.createMediaStreamDestination();
+			
+			var info = {};
+			var track0 = source.mediaStream.getAudioTracks()[0];
+			info.label = track0.label;
+			if (track0.getSettings) info.settings = track0.getSettings();
+			else info.settings = {};
+			info.settings.sampleRate = audioContext.sampleRate;
+			
+			setInfo("OPEN");
+			addInfo(JSON.stringify(info, null, 2));
+			audioStuff.info = info;
+						
+		}).catch(function(err){
+			setInfo("ERROR");
+			return reject(err);
+		});
+	}
+	
+	//Mic SEPIA Web Audio
+	function test2(){
+		setInfo("Loading mic...");
+		var myModules = [];
+
+		function bufferCallback(data){
+			//handle samples here using: data.samples
+			//console.log("bufferCallback", data);
+		}
+		myModules.push({
+			name: 'buffer-switch',
+			settings: {
+				onmessage: bufferCallback,
+				options: {
+					processorOptions: {
+						bufferSize: 512, 	//size of samples generated
+						passThroughMode: 0,	//0: none, 1: original (float32 array)
+					}
+				}
+			}
+		});
+		
+		var webAudioProcessor = new SepiaFW.webAudio.Processor({
+			onaudiostart: function(){ 
+				console.log("webAudioProcessor - onaudiostart", arguments);
+				addInfo("STARTED");
+			},
+			onaudioend: function(){ 
+				console.log("webAudioProcessor - onaudioend", arguments);
+				addInfo("ENDED");
+				webAudioProcessor.release();
+			},
+			onrelease: function(){ 
+				console.log("webAudioProcessor - onrelease", arguments); 
+				addInfo("RELEASED");
+			},
+			onerror: function(){ 
+				console.error("webAudioProcessor - onerror", arguments);
+				addInfo("ERROR");
+			},
+			modules: myModules
+			
+		}, function(info){
+			//Processor ready
+			audioStuff.info = info;
+			audioStuff.ctx = audioStuff.proc.source.context;
+			setInfo("READY");
+			addInfo(JSON.stringify(info, null, 2));
+			//start
+			webAudioProcessor.start();
+			
+		}, function(err){
+			//Initialization error
+			console.error("webAudioProcessor - init. error", err);
+			addInfo("ERROR");
+			if (err) addInfo(JSON.stringify(err));
+		});
+		audioStuff.proc = webAudioProcessor;
+	}
+	
+	//Web Speech API low level
+	function test3(){
+		setInfo("Loading recorder...");
+		var recognition = new SpeechRecognition();
+		audioStuff.rec = recognition;
+		recognition.continuous = false;
+		recognition.lang = 'en-US';
+		recognition.interimResults = true;
+		recognition.maxAlternatives = 1;
+		
+		recognition.onstart = function(event){
+			console.log("recognition - onstart", event);
+			addInfo("START");
+		}
+		recognition.onaudiostart = function(){
+			console.log("recognition - onaudiostart");
+			addInfo("AUDIO START");
+		}
+		recognition.onspeechstart = function(){
+			console.log("recognition - onspeechstart");
+			addInfo("SPEECH START");
+		}
+		recognition.onresult = function(event){
+			console.log("onresult", event.results);
+			//var num = event.results[0][0].transcript;
+			var res = event.results[0];
+			if (res.isFinal){
+				addInfo("final: " + res[0].transcript + " -- conf.: " + res[0].confidence);
+			}else{
+				setInfo("partial: " + res[0].transcript);
+			}
+		}
+		recognition.onspeechend = function(){
+			console.log("recognition - onspeechend");
+			addInfo("SPEECH END");
+		}
+		recognition.onaudioend = function(){
+			console.log("recognition - onaudioend");
+			addInfo("AUDIO END");
+		}
+		recognition.onend = function(event){
+			console.log("recognition - onend", event);
+			addInfo("END");
+		}
+		recognition.onnomatch = function(event){
+			console.log("recognition - onnomatch", event);
+			addInfo("NO MATCH");
+		}
+		recognition.onerror = function(event){
+			console.log("recognition - onerror", event);
+			addInfo(JSON.stringify(event, null, 2));
+		}
+		if (SpeechGrammarList && !disableGrammar){
+			//JSGF: https://www.w3.org/TR/jsgf/
+			var numbers = [ 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+			var grammar = '#JSGF V1.0; grammar numbers; public <number> = ' + numbers.join(' | ') + ' ;';
+			var speechRecognitionList = new SpeechGrammarList();
+			speechRecognitionList.addFromString(grammar, 1);
+			recognition.grammars = speechRecognitionList;
+			console.log("SpeechGrammarList - grammar:", grammar);
+		}
+		recognition.start();
+	}
+	var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+	var SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+	var disableGrammar = true;
+	
+</script>
+</body>
+</html>
