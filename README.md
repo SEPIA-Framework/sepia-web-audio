@@ -8,31 +8,31 @@ but you can quickly add modules for many other use-cases as well (contributions 
   
 Available modules:
 
-- Resampler using Speex codec (WASM module)
-- Voice-Activity-Detection (VAD) via WebRTC-VAD
+- **Resampler** using Speex codec (WASM module)
+- **Voice-Activity-Detection** (VAD) via WebRTC-VAD
 - Custom SEPIA VAD module using Meyda to analyze bark-scale, **MFCC** and more
-- Wave Encoder with lookback-buffer
-- Porcupine Wake-Word detector (including: "Computer", "Jarvis", "Hey SEPIA" and more)
-- [SEPIA STT Server](https://github.com/SEPIA-Framework/sepia-stt-server) WebSocket module for speech recognition (see STT Server for demo)
+- **Wave Encoder** with lookback-buffer
+- Porcupine **Wake-Word detector** (including: "Computer", "Jarvis", "Hey SEPIA" and more)
+- [SEPIA STT Server](https://github.com/SEPIA-Framework/sepia-stt-server) WebSocket module for **speech recognition** (see STT Server for demo)
 - more to come ...
 
 ## Quick-Start - Voice Recorder
 
 Efficiently resampling audio to 16000 Hz and creating 16Bit mono samples for speech recognition was one of the primary objectives when building this library.
 While you can put together your own audio pipeline to do that (see below) there is a very convenient plugin available that does the job for you.
-In this quick-start guide you will learn the basics to use the 'SepiaVoiceRecorder'.  
+In this quick-start guide you will learn the basics to use the **'SepiaVoiceRecorder'**.  
   
-The first step is to import the required files and set the correct path to the modules folder. You will find more details about this step in the tutorial below. In this example the required files in 'modules' are 'speex-resample-switch.js', 'wave-encoder-worker.js' and 'shared/ring-buffer.min.js':
+The first step is to import the required files and set the correct path to the modules folder. You will find more details about this step in the tutorial below.
+In this example the required files in 'modules' are `speex-resample-switch.js`, `wave-encoder-worker.js` and `shared/ring-buffer.min.js`:
 ```html
 <script type="text/javascript" src="test/sepia-web-audio.min.js"></script>
 <script type="text/javascript" src="test/sepia-recorder.min.js"></script>
 <script>
-	//set correct modules folder
-	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "test/modules";
+    SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "test/modules";
 </script>
 ```
 
-Note that we chose to copy the minified core library, the recorder plugin and the modules folder to a folder named 'test'.  
+Note that we chose to copy the minified core library (from 'dist'), the recorder plugin and the modules folder (from 'src') to a folder named 'test'.  
 Now we can create our recorder:
 ```javascript
 //catch some core events:
@@ -52,8 +52,8 @@ SepiaVoiceRecorder.onWaveEncoderAudioData = function(waveData){
 
 //create the recorder:
 SepiaVoiceRecorder.create({
-	targetSampleRate: 16000, 	//16kHz is actually the voice recorder default
-	gain: 3.0, 	//we can pre-amplify the signal using the gain option
+	targetSampleRate: 16000,	//16kHz is actually the voice recorder default
+	gain: 3.0, 					//we can amplify the signal using the gain option
 	recordingLimitMs: 30000, 	//Total recording limit ms
 });
 ```
@@ -92,7 +92,7 @@ Copy the audio modules you are planning to use, for part 1 of the tutorial we on
 
 ```html
 <script>
-	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+    SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
 </script>
 ```
 
@@ -159,7 +159,8 @@ If we don't want to restart later we can close the processor and clean up resour
 ### Part 2: Resample input and record raw 16Bit PCM mono audio (WAV)
 
 A very common use-case for this library is to resample microphone input and encode it as 16Bit PCM mono data (which is basically the default WAV file format).  
-To make this happen we will replace the buffer module from earlier with a resampler and wave encoder module. If you haven't done already please copy 'speex-resample-switch.js', 'wave-encoder-worker.js' and 'shared/ring-buffer.min.js' to your modules folder.  
+To make this happen we will replace the buffer module from earlier with a resampler and wave encoder module.
+If you haven't done already please copy `speex-resample-switch.js`, `wave-encoder-worker.js` and `shared/ring-buffer.min.js` to your modules folder.  
   
 NOTE: Some browsers are actually able to natively resampling for us ^^. The resampler module will simply skip transformation in this case but it might be preferable to prevent native resampling to retain full control over the quality and speed. 
 `SepiaFW.webAudio.isNativeStreamResamplingSupported` will be 'true' when the lib is imported because we can't test for the feature but set to 'false' after the first failed attempt of native resampling!  
