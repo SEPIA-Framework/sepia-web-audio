@@ -17,6 +17,11 @@ class ExampleProcessor extends AudioWorkletProcessor {
 		this.sourceSamplerate = options.processorOptions.ctxInfo.sampleRate;	//INFO: should be same as global scope 'sampleRate'
 		this.targetSamplerate = options.processorOptions.targetSamplerate || options.processorOptions.ctxInfo.targetSampleRate || 16000;
 		
+		this.emitterBufferSize = options.processorOptions.bufferSize || 512;
+		this.channelCount = options.processorOptions.channels || 1;
+		
+		this.passThroughMode = (options.processorOptions.passThroughMode != undefined)? options.processorOptions.passThroughMode : 1;	//0: nothing, 1: original
+		
 		//ready
 		function ready(){
 			//do some stuff...
@@ -30,10 +35,8 @@ class ExampleProcessor extends AudioWorkletProcessor {
 					sourceSamplerate: that.sourceSamplerate,
 					targetSamplerate: that.targetSamplerate,
 					emitterBufferSize: that.emitterBufferSize,
-					calculateRmsVolume: that.calculateRmsVolume,
 					channelCount: that.channelCount,
-					resamplingMode: that.resamplingMode,
-					inputPassThrough: that.inputPassThrough
+					passThroughMode: that.passThroughMode
 				}
 			});
 		}
@@ -107,12 +110,16 @@ class ExampleProcessor extends AudioWorkletProcessor {
 						
 			//transfer input to output
 			for (let i = 0; i < inputSampleSize; ++i){
-				let sampleVal = input[0][i];	//TODO: ONLY MONO!
+				let sampleVal = input[0][i];	//often used: MONO
 				
-				//pass through
-				output[0][i] = sampleVal;
+				//... do something with sampleVal ...
+				
+				//pass through input to output?
+				if (this.passThroughMode == 1){
+					output[0][i] = input[0][i];
+				}
 			}
-			
+						
 			//Send info
 			/*
 			this.port.postMessage({

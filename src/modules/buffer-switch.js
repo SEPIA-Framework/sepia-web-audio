@@ -53,7 +53,7 @@ class BufferProcessor extends AudioWorkletProcessor {
 					sourceSampleRate: that.sourceSamplerate,
 					emitterBufferSize: that.emitterBufferSize,
 					channelCount: that.channelCount,
-					inputPassThrough: that.inputPassThrough
+					passThroughMode: that.passThroughMode
 				}
 			});
 		}
