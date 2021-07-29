@@ -103,13 +103,20 @@ function addTitleToPage(titleText){
 	(document.getElementById("mainView") || document.body).appendChild(ele);
 	return ele;
 }
-function addChartContainerToPage(){
+function addChartContainerToPage(myParentEle){
 	var ele = document.createElement("div");
 	ele.className = "chart";
-	(document.getElementById("mainView") || document.body).appendChild(ele);
+	(myParentEle ||document.getElementById("mainView") || document.body).appendChild(ele);
 	return ele;
 }
-function plotData(data, plotIndex, expandData){
+function plotData(data, plotIndexOrParent, expandData){
+	var plotParentEle = undefined;
+	var plotIndex = undefined;
+	if (typeof plotIndexOrParent == "number"){
+		plotIndex = plotIndexOrParent;
+	}else if (plotIndexOrParent){
+		plotParentEle = plotIndexOrParent;
+	}
 	var p = (plotIndex != undefined)? fixedPlots[plotIndex] : undefined;
 	if (p){
 		if (p.use){
@@ -121,21 +128,24 @@ function plotData(data, plotIndex, expandData){
 			p.graph.draw();
 		}
 	}else{
-		var ele = addChartContainerToPage();
-		var conf = {
-			targetElement: ele,
-			showPoints: false,
-			strokeWidth: 1
-		}
-		if (expandData){
-			var x = uPlot.lazy.createSequence(0, data[0].length);
-			conf.data = [x, ...data];
-		}else{
-			var x = uPlot.lazy.createSequence(0, data.length);
-			conf.data = [x, data];
-		}
-		uPlot.lazy.plot(conf);
+		plotToParent(data, plotParentEle, undefined, expandData);
 	}
+}
+function plotToParent(data, parentEle, config, expandData){
+	var ele = addChartContainerToPage(parentEle);
+	var conf = config || {
+		showPoints: false,
+		strokeWidth: 1
+	}
+	conf.targetElement = ele;
+	if (expandData){
+		var x = uPlot.lazy.createSequence(0, data[0].length);
+		conf.data = [x, ...data];
+	}else{
+		var x = uPlot.lazy.createSequence(0, data.length);
+		conf.data = [x, data];
+	}
+	return uPlot.lazy.plot(conf);
 }
 function drawHeatmap(data, hmIndex, maxPoints){
 	var heatmap = (hmIndex != undefined)? heatmaps[hmIndex] : undefined;

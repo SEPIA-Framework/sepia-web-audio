@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>SEPIA Web Audio Voice Recorder</title>
+
+	<script src="src/visualization/uPlot.iife.min.js?v=1.5.2"></script>
+	<script src="src/visualization/uPlot-lazy.min.js?v=0.9.2"></script>
+	<link rel="stylesheet" href="src/visualization/uPlot.min.css?v=1.5.2">
+
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
+	<script type="text/javascript" src="src/sepia-recorder.js?v=0.9.7"></script>
+	<!--<script type="text/javascript" src="dist/sepia-web-audio.min.js?v=0.9.7"></script>-->
+	<!--<script type="text/javascript" src="dist/sepia-recorder.min.js?v=0.9.7"></script>-->
+	<script type="text/javascript" src="src/modules/shared/ring-buffer.min.js"></script>
+	<script>
+		//set correct modules folder
+		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+	</script>
+	
+	<link rel="stylesheet" type="text/css" href="test-pages/recorder.css?v=0.9.7">
+	<style>
+	.chart {
+		height: 200px;
+	}
+	</style>
+</head>
+<body>
+<div class="page">
+	<h1>SEPIA Voice Recorder Demo</h1>
+	<p>This page uses the 'SepiaVoiceRecorder' plugin of the <a href="https://github.com/SEPIA-Framework/sepia-web-audio" target=_blank>SEPIA Web-Audio Library</a>.
+	It's a high-level interface for a pre-built audio processor pipeline to resample the input signal, access the raw data (e.g.: 16Bit PCM at 16 kHz),
+	do voice-activity-detection (VAD) and record WAV files or do speech recognition (e.g. using the <a href="https://github.com/SEPIA-Framework/sepia-stt-server" target=_blank>SEPIA STT Server</a>).</p>
+	<h2>Recorder</h2>
+	<div class="section">
+		<div class="group"><label>Mode:</label><select id="micModeSelect" onchange="setMicMode(this.value);">
+			<option value="toggle" selected>Toggle ON/OFF</option>
+			<option value="toggle-vad">Toggle ON/VAD OFF</option>
+			<!--<option value="push-to-talk">Push-to-talk</option> TODO -->
+		</select></div>
+		<div class="group"><label>Start/Stop:</label><button id="micButton" onclick="toggleMic();"></button></div>
+		<div class="group"><label>Gain:</label><input id="microphoneGain" class="small" type="number" value="1.0" min="0.1" max="100" step="0.1"></div>
+		<div class="group"><label>Resources:</label><button onclick="releaseMic();">Release</button></div>
+	</div>
+	<div class="section">
+		<div class="group"><label>Vol. Meter (green = good):</label><div id="volumeMeter"><div id="volumeBar"></div></div></div>
+		<div class="group"><label>Source Info:</label><span id="recoderInfo" style="flex: 1 1 auto;">-updated during rec.-</span></div>
+	</div>
+	<h2>Plot Raw Audio Samples <input id="showAudioSamples" type="checkbox" checked style="margin: 0 18px; height: 18px; width: 18px; cursor: pointer;"></h2>
+	<div id="audioSamplesContainer">
+		<div class="chart"></div>
+	</div>
+	<h2>Log <button class="variant-2" onclick="clearMessages()" style="margin: 0 0 0 16px;">CLEAR</button></h2>
+	<div>
+		<ul id='messages'>
+			<li>Log:</li>
+		</ul>
+	</div>
+</div>
+<script type='text/javascript' src="test-pages/test-commons.js"></script>
+<script type='text/javascript'>
+			
+	//--- Recorder ---
+			
+	var volumeThresholds = [0.05, 10];		//too low/too high
+	var gainNode = document.getElementById("microphoneGain");
+	gainNode.addEventListener("change", function(e){
+		if (SepiaVoiceRecorder.isActive()){
+			showInfoModal("NOTE: Gain cannot be changed while recorder is active. Changes will be applied at next 'start'.");
+		}
+	});
+	
+	var micMode = document.getElementById("micModeSelect").value;	//"toggle", "toggle-vad" - TODO: "push-to-talk"
+	var isLoading = false;
+	var isRecording = false;
+	var wavEncoderIsBuffering = false;
+	var sourceInfo = "-?-";
+	var sourceInfoEle = document.getElementById("recoderInfo");
+	
+	var showAudioSamplesCheckbox = document.getElementById("showAudioSamples");
+	var audioSamplesContainer = document.getElementById("audioSamplesContainer");
+	var samplesReceived;
+	var plotSamplesN = 512*2;	//this is basically the time resolution of samples plot (2*512 = collect 2 frames, then plot)
+	var samplesMax = 500;		//used to rescale plot y-axis
+	function resetSamplesBuffer(){
+		samplesReceived = new RingBuffer(plotSamplesN + 1024, 1, "Int16");	 //Buffer for Xs + 2 chunks overhead
+	}
+	
+	function setMicMode(mode){
+		console.log("Mic mode:", mode);
+		micMode = mode;
+	}
+	
+	function toggleMic(){
+		if (!isLoading && !isRecording){
+			isLoading = true;
+			resetSamplesBuffer();
+			setMicState("loading");
+			//for this demo we create a new recorder each time
+			SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
+				SepiaFW.webAudio.tryNativeStreamResampling = false;		//try native resampling?
+				//build options
+				SepiaVoiceRecorder.create({
+					//fileUrl: "test-sounds/chatter_counting.ogg",		//alternative source?
+					targetSampleRate: 16000,	//this is the default for voice recorder
+					resampleQuality: 4,			//1 [fastest] - 10 [best quality]
+					gain: +gainNode.value,
+					recordingLimitMs: 30000,	//Total recording limit ms (use to limit WAV size for example)
+					vad: {mode: 3, maxSequenceTime: 5000}, 	//Switch VAD module on/off - Boolean or options object
+					//asr: false 	//Switch ASR module on/off - Boolean or options object - ASR OFF = WAV encoder
+				});
+			});
+			
+		}else if (isRecording){
+			SepiaVoiceRecorder.stop();
+		
+		}else if (isLoading){
+			setMicState("loading");
+			SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
+				isLoading = false;
+				isRecording = false;
+				setMicState("idle");
+			});
+		}
+	}
+	function releaseMic(){
+		SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
+			addMessage("RELEASED Microphone");
+			samplesReceived = null;
+		});
+	}
+	function onMicError(){
+		setMicState("error");
+		isRecording = false;
+		isLoading = false;
+	}
+	
+	SepiaVoiceRecorder.onProcessorReady = function(info){
+		console.log("SepiaVoiceRecorder -  onProcessorReady", info);
+		sourceInfo = "Sample-rate: " + info.targetSampleRate 
+			+ "Hz (factor: " + (info.inputSampleRate/info.targetSampleRate) + ")\nDevice Label:\n" + (info.sourceInfo? info.sourceInfo.label : "");
+		sourceInfoEle.classList.add("with-button");
+		sourceInfoEle.innerHTML = "<button class='round' onclick='showSourceInfoModal();' title='" + sourceInfo + "'>i</button>";
+		setMicState("idle");
+		isLoading = false;
+		isRecording = false;
+		SepiaVoiceRecorder.start();
+	}
+	SepiaVoiceRecorder.onProcessorInitError = function(err){
+		console.error("SepiaVoiceRecorder -  onProcessorInitError", err);
+		onMicError();
+		addMessage("ERROR - onProcessorInitError: " + err.message);
+		if (location.protocol == "http:" && !location.origin.indexOf("http://localhost") == 0){
+			sourceInfoEle.innerHTML = "<span style='color: red;'>Init. ERROR - Likely because of insecure origin (no HTTPS or localhost)</span>";
+			sourceInfoEle.classList.remove("with-button");
+		}else{
+			sourceInfoEle.innerHTML = "<span style='color: red;'>Init. ERROR - " + err.message + "</span>";
+			sourceInfoEle.classList.remove("with-button");
+		}
+	}
+	SepiaVoiceRecorder.onProcessorError = function(err){
+		console.error("SepiaVoiceRecorder -  onProcessorError", err);
+		onMicError();
+		addMessage("ERROR - onProcessorError: " + err.name);
+	}
+
+	SepiaVoiceRecorder.onAudioStart = function(info){
+		console.log("SepiaVoiceRecorder -  onAudioStart");
+		isRecording = true;
+		setMicState("recording");
+		addMessage("Microphone is OPEN");
+	}
+	SepiaVoiceRecorder.onAudioEnd = function(info){
+		console.log("SepiaVoiceRecorder -  onAudioEnd");
+		isRecording = false;
+		setVolume(0);
+		setMicState("idle");
+		addMessage("Microphone is CLOSED");
+	}
+
+	SepiaVoiceRecorder.onProcessorRelease = function(info){
+		console.log("SepiaVoiceRecorder - onProcessorRelease");
+		setMicState("idle");
+		isRecording = false;
+		isLoading = false;
+	}
+
+	SepiaVoiceRecorder.onDebugLog = function(msg){}
+	
+	//Resampler events
+	SepiaVoiceRecorder.onResamplerData = function(data){
+		//console.log("SepiaVoiceRecorder - onResamplerData", data);
+		if (data.rms != undefined){
+			setVolume(data.rms);
+		}
+		if (showAudioSamplesCheckbox.checked && data.samples){
+			//plot the wave-form now and then
+			samplesReceived.push(data.samples);
+			if (samplesReceived.framesAvailable >= plotSamplesN){
+				var res = [new Int16Array(plotSamplesN)];
+				var max = data.samples[0].reduce(function(a, b){ return Math.max(a, b); });
+				if (max > samplesMax){
+					samplesMax = max;
+					console.log("New max. signal: " + samplesMax);
+					if (samplesMax >= 32767){
+						showInfoModal("Gain is too high, signal was clipped! Stopped recorder. Please reduce gain.");
+						SepiaVoiceRecorder.stop();
+					}
+				}
+				samplesReceived.pull(res);
+				audioSamplesContainer.innerHTML = "";
+				plotToParent(res[0], audioSamplesContainer, {
+					showPoints: false,
+					strokeWidth: 1,
+					yRange: [Math.min(-5000, -1*samplesMax), Math.max(5000, samplesMax)], //in theory: [-32768, 32767]
+					axisSizeY: 65
+				});
+			}
+		}
+	}
+	
+	//ASR events (currently not used in this demo)
+	SepiaVoiceRecorder.onSpeechRecognitionStateChange = function(ev){
+		console.log("SepiaVoiceRecorder - onSpeechRecognitionStateChange", ev);
+	}
+	SepiaVoiceRecorder.onSpeechRecognitionEvent = function(data){
+		console.log("SepiaVoiceRecorder - onSpeechRecognitionEvent", data);
+	}
+	
+	//Wave encoder events
+	SepiaVoiceRecorder.onWaveEncoderStateChange = function(state){
+		console.log("SepiaVoiceRecorder -  onWaveEncoderStateChange", state);
+		if (state.isOpen == false){
+			if (!wavEncoderIsBuffering){
+				//skip - already known
+			}else if (state.bufferOrTimeLimit){
+				addMessage("WAV: stopped buffering - max. time reached.");
+			}else{
+				addMessage("WAV: stopped buffering.");
+			}
+			wavEncoderIsBuffering = false;
+		}else if (state.isOpen == true){
+			if (wavEncoderIsBuffering){
+				//skip - already known
+			}else{
+				addMessage("WAV: started buffering.");
+			}
+			wavEncoderIsBuffering = true;
+		}
+	}
+	SepiaVoiceRecorder.onWaveEncoderAudioData = function(waveData){
+		var targetEle = addMessage("WAV Result:");
+		SepiaVoiceRecorder.addAudioElementToPage(targetEle, waveData, "audio/wav");
+		addMessage(undefined);
+	}
+	
+	//VAD events
+	SepiaVoiceRecorder.onVadStateChange = function(state, code){
+		//1: vaup (activity +), 2: speechstart, 3: vadown (activity -), 4: speechend (timeout), 5: speechend (regular)
+		console.log("SepiaVoiceRecorder -  onVadStateChange", state, code);
+		if (code == 2){
+			addMessage("VAD: speechstart");
+		}else if (code == 4){
+			addMessage("VAD: speechend (max length)");
+		}else if (code == 5){
+			addMessage("VAD: speechend");
+		}
+		//auto-off?
+		if ((code == 4 || code == 5) && micMode == "toggle-vad"){
+			addMessage("VAD: stopping recorder...");
+			SepiaVoiceRecorder.stop();
+		}
+	}
+	
+	//--- Messages and animations ---
+	
+	var micButton = document.getElementById("micButton");
+	function setMicState(state){
+		micButton.classList.remove("recording", "loading");
+		if (state == "loading"){
+			micButton.classList.add("loading");
+		}else if (state == "recording"){
+			micButton.classList.add("recording");
+		}else{
+			//idle
+		}
+	}
+	
+	var volumeBar = document.getElementById("volumeBar");
+	var volBarPassedCheck = false;
+	var maxVol = 0.02;
+	function setVolume(val){
+		if (!volBarPassedCheck){
+			if (val < volumeThresholds[0] || val > volumeThresholds[1]){
+				volumeBar.style.background = "#f04";	//bad
+			}else{
+				volumeBar.style.background = "#0f4";	//good
+				volBarPassedCheck = true;
+				setTimeout(function(){ volBarPassedCheck = false; }, 2000);
+			}
+		}
+		if (val > maxVol) maxVol = val;
+		volumeBar.style.width = Math.round(val/maxVol * 100) + "%";
+	}
+
+	var messages = document.getElementById('messages');
+	function addMessage(msg){
+		var message;
+		message = document.createElement('li');
+		message.textContent = new Date().toLocaleTimeString() + " - " + msg;
+		if (msg){
+			messages.appendChild(message);
+		}
+		messages.scrollTop = messages.scrollHeight;
+		return message;
+	}
+	function clearMessages(){
+		messages.innerHTML = "<li>Log:</li>";
+	}
+	var maxLogHeight = Math.ceil(window.innerHeight - messages.getBoundingClientRect().top - 58);
+	if (maxLogHeight > 150){
+		messages.style.height = maxLogHeight + "px";
+	}else{
+		messages.style.height = "150px";
+	}
+	function showInfoModal(msg){
+		var modalContent = document.createElement("div");
+		modalContent.textContent = msg;
+		var mod = createModal(modalContent, "480px", "85%");
+	}
+	function showSourceInfoModal(){
+		var modalContent = document.createElement("div");
+		modalContent.textContent = sourceInfo;
+		var mod = createModal(modalContent, "480px", "85%");
+	}
+	
+	// ON READY
+			
+	setVolume(0);
+	setMicState("idle");
+</script>
+</body>
+</html>

@@ -48,7 +48,7 @@ label + input {
 	height: 90px;
 	background: #aaa;
 	background: #aaa;
-    background-image: url(sepia.svg);
+    background-image: url(../sepia.svg);
     background-size: 60%;
     background-position: center;
     background-repeat: no-repeat;

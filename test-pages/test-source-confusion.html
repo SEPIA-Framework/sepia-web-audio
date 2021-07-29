@@ -6,10 +6,10 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>SEPIA Web Audio Input-Output Test</title>
 
-	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
+	<script type="text/javascript" src="../src/sepia-web-audio.js?v=0.9.7"></script>
 	<script>
 		//set correct modules folder
-		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "../src/modules";
 	</script>
 	
 	<link rel="stylesheet" type="text/css" href="tests.css?v=0.9.7">
@@ -28,8 +28,8 @@
 	</div>
 	<div>
 		<p>Audio-Output Tests:</p>
-		<audio id="audio-player-1" src="test-sounds/chatter_counting.ogg" controls="controls"></audio>
-		<audio id="audio-player-2" src="test-sounds/traffic_counting.ogg" controls="controls"></audio>
+		<audio id="audio-player-1" src="../test-sounds/chatter_counting.ogg" controls="controls"></audio>
+		<audio id="audio-player-2" src="../test-sounds/traffic_counting.ogg" controls="controls"></audio>
 	</div>
 	<!--<div id="info" style="white-space: pre;"></div>-->
 	<textarea id="info" style="width: 100%; min-height: 150px;"></textarea>
@@ -71,6 +71,7 @@
 		}
 		if (audioStuff.rec){
 			audioStuff.rec.stop();
+			closeContextManually = false;
 		}else{
 			//TODO: note?
 		}
@@ -238,7 +239,7 @@
 	}
 	var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 	var SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
-	var disableGrammar = true;
+	var disableGrammar = true;	//hardly ever supported
 	
 </script>
 </body>
