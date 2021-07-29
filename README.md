@@ -18,9 +18,9 @@ Available modules:
 
 ## Tutorial
 
-UNDER CONSTRUCTION  - Please check out the modules demo and test pages for more examples.  
-  
-Full tutorial code can be found at: [tutorial-test-page.html](tutorial-test-page.html)
+Full tutorial code can be found at: [tutorial-code-page.html](tutorial-code-page.html).  
+Please check out the modules and voice-recorder demo and test pages for more examples.  
+
 
 ### Part 1: Basic setup and single buffer module
 
@@ -98,6 +98,7 @@ As soon as the ready event fired we can start processing with `processor.start()
 After we're done we stop with `processor.stop()` and look out for `onaudioend`.  
   
 If we don't want to restart later we can close the processor and clean up resources with `processor.release()`.
+
 
 ### Part 2: Resample input and record raw 16Bit PCM mono audio (WAV)
 
