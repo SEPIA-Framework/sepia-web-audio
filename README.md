@@ -1,7 +1,8 @@
 # SEPIA Web-Audio Library
 
-Modular, cross-browser library to record and process audio using audio-worklets, web-workers and script-processors (as fallback).
+Modular, cross-browser library to record and process audio using **audio-worklets**, **web-workers** and script-processors (as fallback).
 Can be used to **chain different modules (worklets AND workers) to one audio pipeline**.   
+Thanks to the worklet + worker combination most of the audio **processing can be done in the background** without messing with the main UI-thread!  
   
 The main focus of this library is speech recording and processing (see: [SEPIA Client app](https://github.com/SEPIA-Framework/sepia-html-client-app)),
 but you can quickly add modules for many other use-cases as well (contributions welcome ^^).
