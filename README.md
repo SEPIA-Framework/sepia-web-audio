@@ -18,6 +18,10 @@ Available modules:
 
 ## Quick-Start - Voice Recorder
 
+<p align="center">
+  <img src="screenshots/voice-recorder-demo.png" alt="SEPIA Voice Recorder Demo"/>
+</p>
+
 Efficiently resampling audio to 16000 Hz and creating 16Bit mono samples for speech recognition was one of the primary objectives when building this library.
 While you can put together your own audio pipeline to do that (see below) there is a very convenient plugin available that does the job for you.
 In this quick-start guide you will learn the basics to use the **'SepiaVoiceRecorder'**.  
