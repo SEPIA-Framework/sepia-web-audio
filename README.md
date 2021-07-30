@@ -15,6 +15,8 @@ Available modules:
 - Porcupine **Wake-Word detector** (including: "Computer", "Jarvis", "Hey SEPIA" and more)
 - [SEPIA STT Server](https://github.com/SEPIA-Framework/sepia-stt-server) WebSocket module for **speech recognition** (see STT Server for demo)
 - more to come ...
+  
+Check out the [screenshots](screenshots) section for some test-page impressions :-).
 
 ## Quick-Start - Voice Recorder
 
