@@ -9,7 +9,7 @@
 	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
 	<script>
 		//set correct modules folder
-		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
 	</script>
 	
 	<link rel="stylesheet" type="text/css" href="test-pages/tests.css?v=0.9.7">
@@ -27,6 +27,8 @@
 	<textarea id="info" style="width: 100%; min-height: 150px;"></textarea>
 </div>
 <script type='text/javascript'>
+	if (!window.SepiaFW) alert("SEPIA Web Audio Library not found or not supported (IE11?)!");
+	
 	//logging
 	var infoBox = document.getElementById("info");
 	function addInfo(msg){

@@ -15,7 +15,8 @@
 	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
 	<script>
 		//set correct modules folder
-		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		else alert("SEPIA Web Audio Library not found or not supported (IE11?)!");
 	</script>
 	
 	<script type="text/javascript" src="src/resources/pcm-convert.js?v=0.9.7"></script>

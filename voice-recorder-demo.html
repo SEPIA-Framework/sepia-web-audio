@@ -16,7 +16,7 @@
 	<script type="text/javascript" src="src/modules/shared/ring-buffer.min.js"></script>
 	<script>
 		//set correct modules folder
-		SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
 	</script>
 	
 	<link rel="stylesheet" type="text/css" href="test-pages/recorder.css?v=0.9.7">
@@ -39,7 +39,7 @@
 			<option value="toggle-vad">Toggle ON/VAD OFF</option>
 			<!--<option value="push-to-talk">Push-to-talk</option> TODO -->
 		</select></div>
-		<div class="group"><label>Start/Stop:</label><button id="micButton" onclick="toggleMic();"></button></div>
+		<div class="group"><label>Start/Stop:</label><button id="micButton"></button></div>
 		<div class="group"><label>Gain:</label><input id="microphoneGain" class="small" type="number" value="1.0" min="0.1" max="100" step="0.1"></div>
 		<div class="group"><label>Resources:</label><button onclick="releaseMic();">Release</button></div>
 	</div>
@@ -60,7 +60,10 @@
 </div>
 <script type='text/javascript' src="test-pages/test-commons.js"></script>
 <script type='text/javascript'>
-			
+	if (!window.SepiaVoiceRecorder){
+		SepiaVoiceRecorder = {notSupported: true};	//Library not found or not supported (browser <= IE11)
+	}
+	
 	//--- Recorder ---
 			
 	var volumeThresholds = [0.05, 10];		//too low/too high
@@ -124,10 +127,14 @@
 			});
 		}
 	}
-	function releaseMic(){
+	function releaseMic(callback){
 		SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
-			addMessage("RELEASED Microphone");
+			isLoading = false;
+			isRecording = false;
 			samplesReceived = null;
+			addMessage("RELEASED Microphone");
+			setMicState("idle");
+			if (callback) callback();
 		});
 	}
 	function onMicError(){
@@ -273,18 +280,43 @@
 		}
 	}
 	
-	//--- Messages and animations ---
+	//--- Controls, Messages and Animations ---
 	
 	var micButton = document.getElementById("micButton");
 	function setMicState(state){
-		micButton.classList.remove("recording", "loading");
+		micButton.classList.remove("recording", "loading", "reset");
 		if (state == "loading"){
 			micButton.classList.add("loading");
 		}else if (state == "recording"){
 			micButton.classList.add("recording");
+		}else if (state == "reset"){
+			micButton.classList.add("reset");
 		}else{
 			//idle
 		}
+	}
+	var micLongPressTimer = undefined;
+	var micIsLongPress = false;
+	micButton.addEventListener('pointerdown', function(event){
+		clearTimeout(micLongPressTimer);
+		micLongPressTimer = setTimeout(function(){
+			onMicLongPress();
+		}, 1000);
+	});
+	micButton.addEventListener('pointerup', function(event){
+		clearTimeout(micLongPressTimer);
+		if (!micIsLongPress){
+			toggleMic();
+		}else{
+			setMicState("");
+		}
+		micIsLongPress = false;
+	});
+	function onMicLongPress(){
+		micIsLongPress = true;
+		releaseMic(function(){
+			if (micIsLongPress) setMicState("reset");
+		});
 	}
 	
 	var volumeBar = document.getElementById("volumeBar");
@@ -325,6 +357,7 @@
 		messages.style.height = "150px";
 	}
 	function showInfoModal(msg){
+		if (!window.createModal){ alert(msg); return; }
 		var modalContent = document.createElement("div");
 		modalContent.textContent = msg;
 		var mod = createModal(modalContent, "480px", "85%");
@@ -336,9 +369,12 @@
 	}
 	
 	// ON READY
-			
-	setVolume(0);
-	setMicState("idle");
+	if (SepiaVoiceRecorder.notSupported){
+		showInfoModal("SEPIA Web Audio Library not found or not supported (IE11?)!");
+	}else{
+		setVolume(0);
+		setMicState("idle");
+	}
 </script>
 </body>
 </html>
