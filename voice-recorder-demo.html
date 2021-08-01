@@ -37,7 +37,7 @@
 		<div class="group"><label>Mode:</label><select id="micModeSelect" onchange="setMicMode(this.value);">
 			<option value="toggle" selected>Toggle ON/OFF</option>
 			<option value="toggle-vad">Toggle ON/VAD OFF</option>
-			<!--<option value="push-to-talk">Push-to-talk</option> TODO -->
+			<option value="push-to-talk">Push-to-talk</option>
 		</select></div>
 		<div class="group"><label>Start/Stop:</label><button id="micButton"></button></div>
 		<div class="group"><label>Gain:</label><input id="microphoneGain" class="small" type="number" value="1.0" min="0.1" max="100" step="0.1"></div>
@@ -77,6 +77,7 @@
 	var micMode = document.getElementById("micModeSelect").value;	//"toggle", "toggle-vad" - TODO: "push-to-talk"
 	var isLoading = false;
 	var isRecording = false;
+	var hasBeenAborted = false;		//used when stop came too fast (before 'ready')
 	var wavEncoderIsBuffering = false;
 	var sourceInfo = "-?-";
 	var sourceInfoEle = document.getElementById("recoderInfo");
@@ -96,41 +97,47 @@
 	}
 	
 	function toggleMic(){
-		if (!isLoading && !isRecording){
-			isLoading = true;
-			resetSamplesBuffer();
-			setMicState("loading");
-			//for this demo we create a new recorder each time
-			SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
-				SepiaFW.webAudio.tryNativeStreamResampling = false;		//try native resampling?
-				//build options
-				SepiaVoiceRecorder.create({
-					//fileUrl: "test-sounds/chatter_counting.ogg",		//alternative source?
-					targetSampleRate: 16000,	//this is the default for voice recorder
-					resampleQuality: 4,			//1 [fastest] - 10 [best quality]
-					gain: +gainNode.value,
-					recordingLimitMs: 30000,	//Total recording limit ms (use to limit WAV size for example)
-					vad: {mode: 3, maxSequenceTime: 5000}, 	//Switch VAD module on/off - Boolean or options object
-					//asr: false 	//Switch ASR module on/off - Boolean or options object - ASR OFF = WAV encoder
-				});
+		if (hasBeenAborted){
+			//wait
+		}else if (!isLoading && !isRecording){
+			startMic();
+		}else{
+			stopMic();
+		}
+	}
+	function startMic(){
+		isLoading = true;
+		resetSamplesBuffer();
+		setMicState("loading");
+		//for this demo we create a new recorder each time
+		SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
+			SepiaFW.webAudio.tryNativeStreamResampling = false;		//try native resampling?
+			//build options
+			SepiaVoiceRecorder.create({
+				//fileUrl: "test-sounds/chatter_counting.ogg",		//alternative source?
+				targetSampleRate: 16000,	//this is the default for voice recorder
+				resampleQuality: 4,			//1 [fastest] - 10 [best quality]
+				gain: +gainNode.value,
+				recordingLimitMs: 30000,	//Total recording limit ms (use to limit WAV size for example)
+				vad: {mode: 3, maxSequenceTime: 5000}, 	//Switch VAD module on/off - Boolean or options object
+				//asr: false 	//Switch ASR module on/off - Boolean or options object - ASR OFF = WAV encoder
 			});
-			
-		}else if (isRecording){
+		});
+	}
+	function stopMic(){
+		if (isRecording){
 			SepiaVoiceRecorder.stop();
-		
 		}else if (isLoading){
+			hasBeenAborted = true;
 			setMicState("loading");
-			SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
-				isLoading = false;
-				isRecording = false;
-				setMicState("idle");
-			});
 		}
 	}
 	function releaseMic(callback){
+		setMicState("loading");
 		SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
 			isLoading = false;
 			isRecording = false;
+			hasBeenAborted = false;
 			samplesReceived = null;
 			addMessage("RELEASED Microphone");
 			setMicState("idle");
@@ -141,6 +148,7 @@
 		setMicState("error");
 		isRecording = false;
 		isLoading = false;
+		hasBeenAborted = false;
 	}
 	
 	SepiaVoiceRecorder.onProcessorReady = function(info){
@@ -152,7 +160,11 @@
 		setMicState("idle");
 		isLoading = false;
 		isRecording = false;
-		SepiaVoiceRecorder.start();
+		if (hasBeenAborted){
+			releaseMic();
+		}else{
+			SepiaVoiceRecorder.start();
+		}
 	}
 	SepiaVoiceRecorder.onProcessorInitError = function(err){
 		console.error("SepiaVoiceRecorder -  onProcessorInitError", err);
@@ -189,8 +201,7 @@
 	SepiaVoiceRecorder.onProcessorRelease = function(info){
 		console.log("SepiaVoiceRecorder - onProcessorRelease");
 		setMicState("idle");
-		isRecording = false;
-		isLoading = false;
+		hasBeenAborted = false;
 	}
 
 	SepiaVoiceRecorder.onDebugLog = function(msg){}
@@ -201,7 +212,7 @@
 		if (data.rms != undefined){
 			setVolume(data.rms);
 		}
-		if (showAudioSamplesCheckbox.checked && data.samples){
+		if (showAudioSamplesCheckbox.checked && data.samples && samplesReceived){
 			//plot the wave-form now and then
 			samplesReceived.push(data.samples);
 			if (samplesReceived.framesAvailable >= plotSamplesN){
@@ -298,19 +309,29 @@
 	var micLongPressTimer = undefined;
 	var micIsLongPress = false;
 	micButton.addEventListener('pointerdown', function(event){
-		clearTimeout(micLongPressTimer);
-		micLongPressTimer = setTimeout(function(){
-			onMicLongPress();
-		}, 1000);
+		if (micMode == "push-to-talk"){
+			if (!isLoading && !isRecording && !hasBeenAborted){
+				startMic();
+			}
+		}else{
+			clearTimeout(micLongPressTimer);
+			micLongPressTimer = setTimeout(function(){
+				onMicLongPress();
+			}, 1000);
+		}
 	});
 	micButton.addEventListener('pointerup', function(event){
-		clearTimeout(micLongPressTimer);
-		if (!micIsLongPress){
-			toggleMic();
+		if (micMode == "push-to-talk"){
+			stopMic();
 		}else{
-			setMicState("");
+			clearTimeout(micLongPressTimer);
+			if (!micIsLongPress){
+				toggleMic();
+			}else{
+				setMicState("");
+			}
+			micIsLongPress = false;
 		}
-		micIsLongPress = false;
 	});
 	function onMicLongPress(){
 		micIsLongPress = true;
