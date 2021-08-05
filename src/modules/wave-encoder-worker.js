@@ -100,7 +100,7 @@ function init(){
 	if (lookbackBufferMs){
 		_lookbackBufferSize = Math.round((lookbackBufferMs/1000) * inputSampleRate);
 		if (isFloat32Input){
-			_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount);	//TODO: test for Float32
+			_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, "Float32");	//TODO: test for Float32
 		}else{
 			_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, "Int16");
 		}
@@ -171,8 +171,10 @@ function gateControl(open, gateOptions){
 	};
 	if (open){
 		//TODO: we should reset some stuff here, for now:
-		if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
-			recordedBuffers = [];		//TODO: should this happen always? only when full? never? leave to getBuffer?
+		if (!gateOptions.appendAudio){
+			recordedBuffers = [];		//NOTE: by default we reset the buffer
+		}else if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
+			recordedBuffers = [];
 		}
 		_gateOpenTS = Date.now();
 		gateIsOpen = true;
@@ -182,6 +184,11 @@ function gateControl(open, gateOptions){
 		gateIsOpen = false;
 		msg.gate.openedAt = _gateOpenTS;
 		msg.gate.closedAt = _gateCloseTS;
+		var closedDueToBufferLimit = (recordedBuffers && recordBufferMaxN 
+			&& recordedBuffers.length && recordedBuffers.length >= recordBufferMaxN);
+		if (closedDueToBufferLimit){
+			msg.gate.bufferOrTimeLimit = true;
+		}
 	}
 	msg.gate.isOpen = gateIsOpen;
 	postMessage(msg);
@@ -297,6 +304,10 @@ function release(options){
 	gateIsOpen = false;
 	_gateOpenTS = 0;
 	_gateCloseTS = 0;
+	//notify processor that we can terminate now
+	postMessage({
+		moduleState: 9
+	});
 }
 
 //--- helpers ---
@@ -319,7 +330,11 @@ function buildBuffer(start, end){
 	}
 	var lookbackSamples;
 	if (_lookbackRingBuffer && _lookbackRingBuffer.framesAvailable){
-		lookbackSamples = [new Int16Array(_lookbackRingBuffer.framesAvailable)];
+		if (isFloat32Input){
+			lookbackSamples = [new Float32Array(_lookbackRingBuffer.framesAvailable)];
+		}else{
+			lookbackSamples = [new Int16Array(_lookbackRingBuffer.framesAvailable)];
+		}
 		_lookbackRingBuffer.pull(lookbackSamples);
 	}
 	var dataLength = recordedBuffers.length * inputSampleSize + (lookbackSamples? lookbackSamples[0].length : 0);
@@ -347,6 +362,14 @@ function buildBuffer(start, end){
 		isFloat32: isFloat32
 	}
 }
+function clearBuffer(){
+	var lookbackSamples;
+	if (_lookbackRingBuffer && _lookbackRingBuffer.framesAvailable){
+		_lookbackRingBuffer = new RingBuffer(_lookbackBufferSize, channelCount, isFloat32Input? "Float32" : "Int16");
+	}
+	lookbackBufferNeedsReset = false;
+	recordedBuffers = [];
+}
 
 function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 	if (!samples || !sampleRate || !numChannels){
@@ -354,10 +377,10 @@ function encodeWAV(samples, sampleRate, numChannels, convertFromFloat32){
 		return;
 	}
 	//Format description: http://soundfile.sapp.org/doc/WaveFormat/
-	var buffer = new ArrayBuffer(44 + samples.length * 2);
-	var view = new DataView(buffer);
 	var bitDepth = encoderBitDepth;
 	var bytesPerSample = _bytesPerSample;
+	var buffer = new ArrayBuffer(44 + samples.length * bytesPerSample);		//TODO: was (samples.length * 2)
+	var view = new DataView(buffer);
 	var sampleSize = samples.length;
 	//RIFF identifier
 	wavWriteString(view, 0, 'RIFF');

@@ -42,8 +42,8 @@ onmessage = function(e) {
 };
 
 let workerId = "webrtc-vad-worker-" + Math.round(Math.random() * 1000000) + "-" + Date.now();
-//let doDebug = false;
-//let wasConstructorCalled = false;
+let doDebug = false;
+let wasConstructorCalled = false;
 //let isReadyForProcessing = false;		//TODO: implement
 
 let inputSampleRate;
@@ -140,10 +140,17 @@ function ready(){
 }
 
 function constructWorker(options) {
+	if (wasConstructorCalled){
+		console.error("VadModuleError - Constructor was called twice! 2nd call was ignored but this should be fixed!", "-", workerId);	//DEBUG
+		return;
+	}else{
+		wasConstructorCalled = true;
+	}
+	doDebug = options.setup.doDebug || false;
 	inputSampleRate = options.setup.inputSampleRate || options.setup.ctxInfo.targetSampleRate || options.setup.ctxInfo.sampleRate;
 	channelCount = 1;	//options.setup.channelCount || 1;		//TODO: only MONO atm
 	inputSampleSize = options.setup.inputSampleSize || 512;
-	processBufferSize = options.setup.bufferSize || inputSampleSize;
+	processBufferSize = options.setup.bufferSize || (inputSampleRate/1000 * 30 * 2);	//2 windows of 30ms by default
 	vadMode = (options.setup.vadMode != undefined)? options.setup.vadMode : 3;
 	isFloat32Input = (options.setup.isFloat32 != undefined)? options.setup.isFloat32 : false;
 	
@@ -184,7 +191,7 @@ function constructWorker(options) {
 	init();
 	
 	function onVadLog(msg){
-		console.error("VadModuleLog -", msg);			//DEBUG (use postMessage?)
+		if (doDebug) console.error("VadModuleLog -", msg);			//DEBUG (use postMessage?)
 	}
 	function onVadError(msg){
 		console.error("VadModuleError -", msg);
@@ -380,7 +387,11 @@ function release(options){
 	_processRingBuffer = null;
 	_vadBuffer = null;
 	_int16InputBuffer = null;
-	vadModule = null;
+	vadModule = null;		//TODO: is there any other 'destroy'' function?
+	//notify processor that we can terminate now
+	postMessage({
+		moduleState: 9
+	});
 }
 
 //--- helpers ---

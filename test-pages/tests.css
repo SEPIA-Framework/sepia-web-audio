@@ -12,7 +12,7 @@ button {
 	display: inline-block;
 	margin: 8px;
 }
-label, input {
+label, input, select {
 	margin: 8px;
 }
 input.small {
@@ -47,20 +47,25 @@ label + input {
 	width: 90px;
 	height: 90px;
 	background: #aaa;
+	background: #aaa;
+    background-image: url(../sepia.svg);
+    background-size: 60%;
+    background-position: center;
+    background-repeat: no-repeat;
 	border-radius: 50%;
 	margin: 8px;
 }
 #status.ready {
-	background: #000;
+	background-color: #000;
 }
 #status.listening {
-	background: #ff3355;
+	background-color: #ff3355;
 }
 #status.voiceactivity {
-	background: #16abc3;
+	background-color: #16abc3;
 }
 #status.insequence {
-	background: #33ee88;
+	background-color: #33ee88;
 }
 #logMessages {
 	max-height: 50vh;

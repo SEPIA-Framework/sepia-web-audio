@@ -44,7 +44,7 @@ onmessage = function(e){
 	}
 	//Custom interface
 	if (e.data.gate != undefined){
-		console.error("Message", e.data);			//DEBUG
+		//console.error("Message", e.data);			//DEBUG
 		gateControl(e.data.gate && e.data.gate == "open", e.data.gateOptions);
 	}
 };
@@ -134,12 +134,20 @@ function constructWorker(options) {
 	inputSampleSize = options.setup.inputSampleSize || 512;
 	processBufferSize = options.setup.bufferSize || inputSampleSize;
 	
-	porcupineVersion = options.setup.version || options.setup.porcupineVersion || 19;
-	porcupineVersion = porcupineVersion.replace(".", "").trim();	//remove dot
+	var wasmFileArrayBuffer = options.preLoadResults.wasmFile || options.preLoadResults.wasmBase64;
+	var defaultWasmBinaryFile = "";		//don't change
+	var isBase64Mode = !!options.preLoadResults.wasmBase64;		//NOTE: this is still experimental support (default is .wasm file)
+	
+	porcupineVersion = ((options.setup.version || options.setup.porcupineVersion || 19) + "").replace(".", "").trim();
+	porcupineVersion = +porcupineVersion || 19;		//... because we support "19", "1.9", 1.9 and 19 ...
 	if (porcupineVersion <= 16){
 		importScripts('./picovoice/porcupine-wasm-module-' + "14" + '.js');		//we assume this works for 14-16?
 	}else{
-		importScripts('./picovoice/porcupine-wasm-module-' + "19" + '.js');
+		if (isBase64Mode){
+			importScripts('./picovoice/porcupine-wasm-module-' + "19_b64" + '.js');
+		}else{
+			importScripts('./picovoice/porcupine-wasm-module-' + "19" + '.js');
+		}
 	}
 	
 	keywords = options.setup.keywords || ["Computer"];
@@ -149,8 +157,7 @@ function constructWorker(options) {
 	//TODO: use 'options.setup.keywordsData'
 	sensitivities = options.setup.sensitivities || [0.5];
 	
-	var wasmFileArrayBuffer = options.preLoadResults.wasmFile;
-	var defaultWasmBinaryFile = "";		//don't change	
+	//build Porcupine
 	PorcupineBuilder(wasmFileArrayBuffer, defaultWasmBinaryFile, function(buildResult){
 		_Porcupine = buildResult;
 		
@@ -214,6 +221,11 @@ function release(options){
 	//TODO: clean up worker and close
 	keywords = null;
 	sensitivities = null;
+	if (porcupine) porcupine.release();
 	porcupine = null;
 	_Porcupine = null;
+	//notify processor that we can terminate now
+	postMessage({
+		moduleState: 9
+	});
 }

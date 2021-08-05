@@ -6,16 +6,16 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>SEPIA Web Audio Resampler Test</title>
 
-	<script src="src/visualization/uPlot.iife.min.js"></script>
-	<script src="src/visualization/uPlot-lazy.min.js"></script>
-	<script src="src/visualization/uPlot-lazy-heatmap.min.js"></script>
-	<link rel="stylesheet" href="src/visualization/uPlot.min.css">
+	<script src="../src/visualization/uPlot.iife.min.js"></script>
+	<script src="../src/visualization/uPlot-lazy.min.js"></script>
+	<script src="../src/visualization/uPlot-lazy-heatmap.min.js"></script>
+	<link rel="stylesheet" href="../src/visualization/uPlot.min.css">
 
-	<script src="src/polyfills/audioworklet-polyfill.js"></script>
-	<script type="text/javascript" src="src/sepia-web-audio.js"></script>
+	<script src="../src/polyfills/audioworklet-polyfill.js"></script>
+	<script type="text/javascript" src="../src/sepia-web-audio.js"></script>
 	
-	<script type="text/javascript" src="src/resources/pcm-convert.js"></script>
-	<script type="text/javascript" src="src/resources/fir-filter-resampler.js"></script>
+	<script type="text/javascript" src="../src/resources/pcm-convert.js"></script>
+	<script type="text/javascript" src="../src/resources/fir-filter-resampler.js"></script>
 	
 	<link rel="stylesheet" type="text/css" href="tests.css">
 	<style></style>
@@ -31,14 +31,14 @@
 <script type='text/javascript'>
 
 	//set correct modules folder
-	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+	SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "../src/modules";
 	
 	function testResampler(obj, quality){
 		if (!obj) obj = {};
 		if (!quality) quality = 0;
 		var smallBuff;
 		var smallBuffRes;
-		var testFile = "test-sounds/chatter_counting.wav";
+		var testFile = "../test-sounds/chatter_counting.wav";
 		var testFileSampleRate = 24000;
 		SepiaFW.webAudio.readFileAsBuffer(testFile, function(arrayBuffer){
 			var buff = new Int16Array(arrayBuffer); //new Uint8Array(arrayBuffer);

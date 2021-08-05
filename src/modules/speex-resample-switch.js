@@ -137,7 +137,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 					channelCount: that.channelCount,
 					resamplingMode: that.resamplingMode,
 					gain: that.gain,
-					inputPassThrough: that.inputPassThrough
+					passThroughMode: that.passThroughMode
 				}
 			});
 		}
@@ -177,6 +177,10 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 			that._newOutputBuffer = null;
 			that.resampler = null;
 			speexModule = null;
+			//notify processor that we can terminate now
+			that.port.postMessage({
+				moduleState: 9
+			});
 		}
 		
 		//on-request resampling

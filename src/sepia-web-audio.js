@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.3";
+	WebAudio.version = "0.9.7";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -12,12 +12,13 @@ if (!(typeof SepiaFW == "object")){
 
 	function testStreamRecorderSupport(){
 		isMediaDevicesSupported = (!!AudioContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-		isCordovaAudioinputSupported = (window.cordova && window.audioinput);
+		//isCordovaAudioinputSupported = (window.cordova && window.audioinput);		//TODO: implement (import ... "./plugins/cordova-audio-input.js")
 		return !!isMediaDevicesSupported || isCordovaAudioinputSupported;
 	}
 	
 	WebAudio.isStreamRecorderSupported = testStreamRecorderSupport(); 		//set once at start
 	WebAudio.isNativeStreamResamplingSupported = true; 	//will be tested on first media-stream creation
+	WebAudio.tryNativeStreamResampling = true;			//overwrite to force-ignore native resampling
 	WebAudio.contentFetchTimeout = 8000;	//used e.g. for WASM pre-loads etc.
 	
 	WebAudio.defaultProcessorOptions = {
@@ -87,6 +88,7 @@ if (!(typeof SepiaFW == "object")){
 			contextOptions.sampleRate = options.targetSampleRate;
 		}
 		var ac = new AudioContext(contextOptions);
+		//TODO: on some freaky circumstances ac.state can be faulty as seen in iOS (shows 'suspended' but await ac.suspend() never resolves)
 		//console.log("AC STATE: " + ac.state);		//TODO: this can be suspended if the website is restrict and the user didn't interact with it yet
 		return ac;
 	};
@@ -176,7 +178,8 @@ if (!(typeof SepiaFW == "object")){
 			if (!mainAudioContext || mainAudioContext.state == "closed"){
 				//TODO: clean up old context and sources?
 				mainAudioContext = WebAudio.createAudioContext(options, ignoreOptions);
-				if (options.startSuspended){
+				if (options.startSuspended == undefined || options.startSuspended){
+					try { await mainAudioContext.resume(); } catch(error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await mainAudioContext.suspend();
 				}else{
 					await mainAudioContext.resume();
@@ -254,9 +257,7 @@ if (!(typeof SepiaFW == "object")){
 		function setStateProcessingStop(){
 			isProcessing = false;
 		}
-		function setStateProcessorReleased(){
-			//anythinig?
-		}
+		//function setStateProcessorReleased(){} //already handled in 'resetInitializer'
 			
 		//Supported?
 		if (!WebAudio.isStreamRecorderSupported && !options.customSourceTest && !options.customSource){
@@ -285,11 +286,15 @@ if (!(typeof SepiaFW == "object")){
 					await Promise.all(preLoadKeys.map(async function(plKey, j){
 						var plPath = info.modulePreLoads[plKey];	//NOTE: this can be a string or an object ({type: 2, path: 'url'})
 						var plType = 1;		//1: text, 2: arraybuffer
+						var convert = undefined;
 						if (typeof plPath == "object"){
 							plType = (plPath.type && (plPath.type == 2 || plPath.type.toLowerCase() == "arraybuffer"))? 2 : 1;
 							plPath = plPath.path || plPath.url;
 						}else if (plKey.indexOf("wasmFile") == 0){
 							plType = 2;
+						}else if (plKey.indexOf("wasmBase64") == 0){
+							plType = 1;
+							convert = convertBase64ToUint8Array;
 						}
 						try{
 							var data;
@@ -299,6 +304,9 @@ if (!(typeof SepiaFW == "object")){
 								data = await textLoaderPromise(plPath);
 							}else if (plType == 2){
 								data = await arrayBufferLoaderPromise(plPath);
+							}
+							if (typeof convert == "function"){
+								data = convert(data);
 							}
 							preLoads[plKey] = data;
 						}catch (err){
@@ -326,6 +334,16 @@ if (!(typeof SepiaFW == "object")){
 							};
 							if (--N == 0){
 								completeCallback(initInfo);
+							}
+						}else if (event.data.moduleState == 9 && !thisProcessNode.isTerminated){
+							if (typeof thisProcessNode.terminate == "function"){
+								try {
+									thisProcessNode.isTerminated = true;
+									thisProcessNode.terminate();	
+								}catch (err){
+									thisProcessNode.isTerminated = true;	//we need this to prevent follow up errors
+									onError({name: "TerminateError", message: "Failed to terminate module", info: err});
+								}
 							}
 						}else if (event.data.moduleResponse){
 							//RESPONSE to "on-demand" request
@@ -409,14 +427,14 @@ if (!(typeof SepiaFW == "object")){
 								targetSampleRate: options.targetSampleRate
 							}
 						}
-						thisProcessNode = new Worker(moduleFolder + moduleName.replace(/-worker$/, "") + '-worker.js'); //NOTE: a worker has to be named "-worker.js"!
+						thisProcessNode = new Worker(moduleFolder + moduleName.replace(/-worker$/, "") + '-worker.js'); 	//NOTE: a worker has to be named "-worker.js"!
 						thisProcessNode.isReady = false;
 						thisProcessNode.moduleName = moduleName;
 						thisProcessNode.onmessage = onMessage;
 						thisProcessNode.onerror = onError;
 						thisProcessNode.sendToModule = function(msg){ 
 							if (!thisProcessNode.isReady){
-								if (msg && msg.ctrl && msg.ctrl.action == "construct") thisProcessNode.postMessage(msg);
+								if (msg && msg.ctrl && msg.ctrl.action == "construct") thisProcessNode.postMessage(msg); 	//TODO: consider transerf option: (msg, [transfer]);
 								else onProcessorError({
 									name: "AudioModuleProcessorException",
 									message: "'sendToModule' was called before module was actually ready. Consider 'startSuspended' option maybe.",
@@ -441,6 +459,21 @@ if (!(typeof SepiaFW == "object")){
 					}
 					thisProcessNode.moduleType = moduleType;
 					thisProcessNode.ignoreSendToModules = false;	//this is most useful for workers to prevent serialization if message is not processed anyway
+					thisProcessNode.deactivate = function(){
+						thisProcessNode.ignoreSendToModules = true;		//prevent all other modules to send messages to this one
+						if (isProcessing){
+							//stop and reset if processor is running
+							thisProcessNode.sendToModule({ctrl: {action: "stop"}});
+							thisProcessNode.sendToModule({ctrl: {action: "reset"}});
+						}
+					}
+					thisProcessNode.activate = function(){
+						thisProcessNode.ignoreSendToModules = false;
+						if (isProcessing){
+							//start if processor is already running
+							thisProcessNode.sendToModule({ctrl: {action: "start"}});
+						}
+					}
 					module.handle = thisProcessNode;
 					
 					//adapt module to first non-worklet source?
@@ -527,7 +560,7 @@ if (!(typeof SepiaFW == "object")){
 			if (!controls) controls = {};	//e.g.: onBeforeStart, onAfterStart, onBeforeStop, onAfterStop, onBeforeRelease, onAfterRelease
 			
 			//START
-			startFun = function(callback){
+			startFun = function(startCallback, errorCallback){
 				Promise.resolve((controls.onBeforeStart || noop)())
 				.then(function(){
 					return mainAudioContext.resume();
@@ -552,11 +585,14 @@ if (!(typeof SepiaFW == "object")){
 						return Promise.resolve(controls.onAfterStart());
 					}
 				})
-				.then(callback)
-				.catch(function(err){onProcessorError({name: "ProcessorStartError", message: (err.name + " - Message: " + (err.message || err))});});
+				.then(startCallback)
+				.catch(function(err){
+					onProcessorError({name: "ProcessorStartError", message: (err.name + " - Message: " + (err.message || err))});
+					if (errorCallback) errorCallback(err);
+				});
 			}
 			//STOP
-			stopFun = function(callback){
+			stopFun = function(stopCallback, errorCallback){
 				Promise.resolve((controls.onBeforeStop || noop)())
 				.then(function(){
 					//disconnect and signal
@@ -572,11 +608,14 @@ if (!(typeof SepiaFW == "object")){
 						return Promise.resolve(controls.onAfterStop());
 					}
 				})
-				.then(callback)
-				.catch(function(err){onProcessorError({name: "ProcessorStopError", message: (err.name + " - Message: " + (err.message || err))});});
+				.then(stopCallback)
+				.catch(function(err){
+					onProcessorError({name: "ProcessorStopError", message: (err.name + " - Message: " + (err.message || err))});
+					if (errorCallback) errorCallback(err);
+				});
 			}
 			//RELEASE
-			releaseFun = function(callback){
+			releaseFun = function(releaseCallback, errorCallback){
 				Promise.resolve((controls.onBeforeRelease || noop)())
 				.then(function(){
 					//signal
@@ -595,11 +634,11 @@ if (!(typeof SepiaFW == "object")){
 						return Promise.resolve(controls.onAfterRelease());
 					}
 				})
-				.then(function(){
-					return Promise.resolve(resetInitializer());
-				})
-				.then(callback)
-				.catch(function(err){onProcessorError({name: "ProcessorReleaseError", message: (err.name + " - Message: " + (err.message || err))});});
+				.then(releaseCallback)
+				.catch(function(err){
+					onProcessorError({name: "ProcessorReleaseError", message: (err.name + " - Message: " + (err.message || err))});
+					if (errorCallback) errorCallback(err);
+				});
 			}
 			
 			completeInitCondition("sourceSetup");
@@ -671,7 +710,7 @@ if (!(typeof SepiaFW == "object")){
 				
 			}).then(function(){
 				//continue with source handler
-				sourceHandler(micRes.source, {}, micRes.info);
+				sourceHandler(micRes.source, micRes.controls || {}, micRes.info);
 				
 			}).catch(function(err){
 				if (typeof err == "string"){
@@ -685,7 +724,9 @@ if (!(typeof SepiaFW == "object")){
 		
 		//INTERFACE
 		
-		thisProcessor.start = function(callback){
+		thisProcessor.start = function(startCallback, noopCallback, errorCallback){		
+			//NOTE: callback management is a bit tricky here - most of the time you should use the common processor callbacks ...
+			//... but in some situations you need a more direct feedback. Error here might not call all async. module errors though.
 			if (isInitialized && !isProcessing){
 				startFun(function(){
 					var startTime = new Date().getTime();	//TODO: is this maybe already too late?
@@ -693,34 +734,49 @@ if (!(typeof SepiaFW == "object")){
 					if (options.onaudiostart) options.onaudiostart({
 						startTime: startTime
 					});
-					if (callback) callback();
-				});
+					if (startCallback) startCallback();
+				}, errorCallback);
+			}else{
+				if (noopCallback) noopCallback();
 			}
 		}
 		
-		thisProcessor.stop = function(callback){
+		thisProcessor.stop = function(stopCallback, noopCallback, errorCallback){
+			//NOTE: see notes above about callbacks
 			if (isProcessing){
-				stopFun(function(){ 
+				stopFun(function(){
 					var endTime = new Date().getTime();		//TODO: is this maybe already too late?
 					setStateProcessingStop();
 					if (options.onaudioend) options.onaudioend({
 						endTime: endTime
 					});
-					if (callback) callback();
-				});
+					if (stopCallback) stopCallback();
+				}, errorCallback);
+			}else{
+				if (noopCallback) noopCallback();
 			}
 		}
 		
-		thisProcessor.release = function(callback){
-			releaseFun(function(){ 
-				setStateProcessorReleased();
-				if (options.onrelease) options.onrelease();
-				if (callback) callback();
-			});
+		thisProcessor.release = function(releaseCallback, noopCallback, errorCallback){
+			//NOTE: see notes above about callbacks
+			if (isInitialized && releaseFun){
+				releaseFun(function(){
+					resetInitializer();
+					if (options.onrelease) options.onrelease();
+					if (releaseCallback) releaseCallback();
+				}, errorCallback);
+			}else if (isInitPending){
+				initializerError({message: "Release was called before initialization was complete.", name: "ProcessorInitError"});
+			}else{
+				if (noopCallback) noopCallback();
+			}
 		}
 
 		thisProcessor.isInitialized = function(){
 			return isInitialized;
+		}
+		thisProcessor.isInitPending = function(){
+			return isInitPending;
 		}
 		thisProcessor.isProcessing = function(){
 			return isProcessing;
@@ -770,7 +826,8 @@ if (!(typeof SepiaFW == "object")){
 		if (!asyncCreateOrUpdateAudioContext){
 			asyncCreateOrUpdateAudioContext = async function(forceNew, ignoreOptions){
 				var audioContext = WebAudio.createAudioContext(options, ignoreOptions);
-				if (options.startSuspended){
+				if (options.startSuspended == undefined || options.startSuspended){
+					try { await audioContext.resume(); } catch (error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await audioContext.suspend();
 				}else{
 					await audioContext.resume();
@@ -800,7 +857,7 @@ if (!(typeof SepiaFW == "object")){
 					
 					//Audio context and source node
 					var audioContext;
-					if (WebAudio.isNativeStreamResamplingSupported){
+					if (WebAudio.tryNativeStreamResampling && WebAudio.isNativeStreamResamplingSupported){
 						audioContext = await asyncCreateOrUpdateAudioContext(false, false);		//Try native resampling first
 					}else{
 						audioContext = await asyncCreateOrUpdateAudioContext(false, true);
@@ -823,17 +880,34 @@ if (!(typeof SepiaFW == "object")){
 					}
 					
 					var info = { type: "mic" };
+					var track0;
 					if (source.mediaStream && source.mediaStream.getAudioTracks){
 						try {
-							var track0 = source.mediaStream.getAudioTracks()[0];
+							track0 = source.mediaStream.getAudioTracks()[0];
 							info.label = track0.label;
 							if (track0.getSettings) info.settings = track0.getSettings();
 							else info.settings = {};
 							info.settings.sampleRate = audioContext.sampleRate;
 						}catch(e){};
 					}
+
+					var controlEvents = {
+						//onBeforeStart, onAfterStart, onBeforeStop, onAfterStop, onBeforeRelease, onAfterRelease
+						onBeforeStart: function(){},
+						onAfterStop: function(){},
+						onAfterRelease: function(){
+							//release mic resources
+							if (track0 && typeof track0.stop == "function" && track0.readyState == "live"){
+								track0.stop();
+							}
+						}
+					}
 					
-					return resolve({source: source, info: info});
+					return resolve({
+						source: source,
+						controls: controlEvents,
+						info: info
+					});
 					
 				}).catch(function(err){
 					return reject(err);
@@ -850,7 +924,7 @@ if (!(typeof SepiaFW == "object")){
 	
 	//MediaRecorder
 	WebAudio.createAudioRecorder = function(stream, sourceInfo, recorderOptions){
-		if (!recorderOptions) recorderOptions = {};
+		if (!recorderOptions) recorderOptions = {};		//TODO: option 'decodeToAudioBuffer' is still experimental
 		if (!recorderOptions.codec) recorderOptions.codec = "webm_ogg_opus";
 		return new Promise(function(resolve, reject){
 			(async function(){
@@ -891,7 +965,7 @@ if (!(typeof SepiaFW == "object")){
 						mediaRecorder.onstop = function(e){
 							//var blob = new Blob(chunks, {'type' : mimeType});
 							//chunks = [];
-							console.log("onstop", "state", mediaRecorder.state);		//DEBUG TODO: remove
+							//console.log("onstop", "state", mediaRecorder.state);		//DEBUG
 							if (onStop && !recorderOptions.decodeToAudioBuffer){
 								onStop();		//TODO: we delay stop if we need to decode the blob first to keep original order
 							}
@@ -901,7 +975,7 @@ if (!(typeof SepiaFW == "object")){
 							//decode chunks
 							if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
 								//catch last 'ondataavailable' and delay stop
-								console.log("ondataavailable", "state", mediaRecorder.state);		//DEBUG TODO: remove
+								//console.log("ondataavailable", "state", mediaRecorder.state);		//DEBUG
 								if (mediaRecorder.state == "inactive") triggeredLastData = true;
 								if (e && e.data){
 									let startDecode = Date.now();
@@ -930,7 +1004,7 @@ if (!(typeof SepiaFW == "object")){
 						var stop = function(){
 							if (stopTimer) clearTimeout(stopTimer);
 							stoppedTS = Date.now();
-							console.log("AudioRecorder state:", mediaRecorder.state);		//DEBUG
+							//console.log("AudioRecorder state:", mediaRecorder.state);		//DEBUG
 							if (mediaRecorder.state != "inactive") mediaRecorder.stop();
 						};
 						var start = function(){
@@ -975,7 +1049,6 @@ if (!(typeof SepiaFW == "object")){
 		});
 	}
 	function blobToArray(blobData, callback){
-		console.log("blobData", blobData);		//DEBUG
 		if (!blobData || !blobData.size){
 			callback();
 		}else if (typeof blobData.arrayBuffer == "function"){
@@ -1022,10 +1095,28 @@ if (!(typeof SepiaFW == "object")){
 				type: "scriptProcessor",
 				typeData: res.info,
 				hasWorkletSupport: false, 	//does not fit into audio processing thread (normal worklets)
-				//TODO: ?!?
-				start: function(){},
-				stop: function(){},
-				release: function(){}
+				start: function(){
+					//overwrites afterStart
+					if (res.controls.onAfterStart) res.controls.onAfterStart();
+				},
+				stop: function(){
+					//overwrites beforeStop
+					if (res.controls.onBeforeStop) res.controls.onBeforeStop();
+				},
+				release: function(){
+					//overwrites afterRelease
+					if (res.controls.onAfterRelease) res.controls.onAfterRelease();
+				}
+				//TODO: implement more?!?
+			}
+			//remaining controlEvents - beforeStart, afterStart, beforeStop, afterStop, beforeRelease, afterRelease
+			if (res.controls){
+				if (res.controls.onBeforeStart) customSource.beforeStart = res.controls.onBeforeStart;
+				//if (res.controls.onAfterStart) customSource.afterStart = res.controls.onAfterStart;
+				//if (res.controls.onBeforeStop) customSource.beforeStop = res.controls.onBeforeStop;
+				if (res.controls.onAfterStop) customSource.afterStop = res.controls.onAfterStop;
+				if (res.controls.onBeforeRelease) customSource.beforeRelease = res.controls.onBeforeRelease;
+				//if (res.controls.onAfterRelease) customSource.afterRelease = res.controls.onAfterRelease;
 			}
 
 			if (options.onaudioprocess){
@@ -1065,6 +1156,7 @@ if (!(typeof SepiaFW == "object")){
 				try {
 					//Audio context and source node
 					var audioContext = WebAudio.createAudioContext(options);
+					try { await audioContext.resume(); } catch(error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await audioContext.suspend();
 					
 					var modulePath = moduleFolder + "white-noise-generator.js";
@@ -1097,6 +1189,7 @@ if (!(typeof SepiaFW == "object")){
 				try {
 					//AudioContext and AudioBufferSourceNode - NOTE: maybe useful: new OfflineAudioContext(1, 128, 16000);
 					var audioContext = WebAudio.createAudioContext(options);
+					try { await audioContext.resume(); } catch(error){};		//TODO: prevent quirky stuff on e.g. iOS
 					await audioContext.suspend();
 					var audioBufferSourceNode = audioContext.createBufferSource();
 					
@@ -1167,6 +1260,34 @@ if (!(typeof SepiaFW == "object")){
 			errorCallback(err);
 		}
 		encoderWorker.postMessage({ctrl: {action: "construct", options: options}});
+	}
+	//Decode audio file to audio buffer
+	WebAudio.decodeAudioFile = function(fileUrl, sampleRate, channels, successCallback, errorCallback){
+		WebAudio.readFileAsBuffer(fileUrl, function(encodedArray){
+			var offlineAudioContext = new OfflineAudioContext(channels, encodedArray.byteLength, sampleRate);
+			offlineAudioContext.decodeAudioData(encodedArray, function(audioBuffer){
+				successCallback(audioBuffer);
+			}, function(err){
+				errorCallback(err);
+			});
+		}, function(err){
+			errorCallback(err);
+		});
+	}
+	//Decode audio file to audio buffer
+	WebAudio.decodeAudioFileToInt16Mono = function(fileUrl, sampleRate, successCallback, errorCallback){
+		var channels = 1;
+		WebAudio.decodeAudioFile(fileUrl, sampleRate, channels, function(audioBuffer){
+			var isFloat32 = true;
+			WebAudio.encodeWaveBuffer(audioBuffer.getChannelData(0), sampleRate, channels, isFloat32, function(res){
+				try {
+					var samplesInt16Mono = new Int16Array(res.wav.buffer);
+					successCallback(samplesInt16Mono);
+				}catch(err){
+					errorCallback(err);
+				}
+			}, errorCallback);
+		}, errorCallback);
 	}
 	
 	//WASM resampler
@@ -1264,6 +1385,33 @@ if (!(typeof SepiaFW == "object")){
 			errorCallback(e);
 		};
 		request.send();
+	}
+
+	//Base64 converter
+	function convertBase64ToUint8Array(s){
+		try {
+			var decoded = atob(s);
+			var bytes = new Uint8Array(decoded.length);
+			for (var i = 0; i < decoded.length; ++i){
+				bytes[i] = decoded.charCodeAt(i);
+			}
+			return bytes;
+		}catch (error){
+			throw new Error("Converting base64 string to bytes failed.");
+		}
+	}
+	
+	//Add audio data as audio element to element on page (or body)
+	WebAudio.addAudioElementToPage = function(targetEle, audioData, audioType){
+		var audioEle = document.createElement("audio");
+		audioEle.src = window.URL.createObjectURL((audioData.constructor.name == "Blob")?
+			audioData : (new Blob([audioData], { type: (audioType || "audio/wav") })));
+		audioEle.setAttribute("controls", "controls");
+		var audioBox = document.createElement("div");
+		audioBox.appendChild(audioEle);
+		if (!targetEle) targetEle = document.body;
+		targetEle.appendChild(audioBox);
+		return audioEle;
 	}
 	
 	//used to keep Promise structure, e.g.: Promise.resolve((optionalFun || noop)()).then(...)

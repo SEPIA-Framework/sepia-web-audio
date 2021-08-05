@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>SEPIA Web Audio Tutorial Code</title>
+
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
+	<script>
+		//set correct modules folder
+		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+	</script>
+	
+	<link rel="stylesheet" type="text/css" href="test-pages/tests.css?v=0.9.7">
+	<style></style>
+</head>
+<body>
+<div id="mainView">
+	<h1>SEPIA Web Audio Processor - Tutorial Code</h1>
+	<p>This page simply demonstrates some tutorial code as described in the README. Please see 'console.log/error' in dev tools for more events and info.</p>
+	<div>
+		<button onclick="tutorialPart1();">Tutorial Part 1 - Buffer Processing (3s)</button>
+		<button onclick="tutorialPart2();">Tutorial Part 2 - Resample and WAV encode (4s)</button>
+		<button onclick="window.location.reload();">Reload page</button>
+	</div>
+	<textarea id="info" style="width: 100%; min-height: 150px;"></textarea>
+</div>
+<script type='text/javascript'>
+	if (!window.SepiaFW) alert("SEPIA Web Audio Library not found or not supported (IE11?)!");
+	
+	//logging
+	var infoBox = document.getElementById("info");
+	function addInfo(msg){
+		infoBox.textContent += "\n" + msg;
+		infoBox.scrollTop = infoBox.scrollHeight;
+	}
+	function setInfo(msg){
+		infoBox.textContent = msg;
+		infoBox.scrollTop = infoBox.scrollHeight;
+	}
+	
+	//Tutorial Part 1
+	function tutorialPart1(){
+		setInfo("Tutorial 1");
+		
+		var myModules = [];
+
+		function bufferCallback(data){
+			//handle samples here using: data.samples
+			console.log("bufferCallback", data);
+		}
+		myModules.push({
+			name: 'buffer-switch',
+			settings: {
+				onmessage: bufferCallback,
+				options: {
+					processorOptions: {
+						bufferSize: 512, 	//size of samples generated
+						passThroughMode: 0,	//0: none, 1: original (float32 array)
+					}
+				}
+			}
+		});
+		
+		var processor = new SepiaFW.webAudio.Processor({
+			onaudiostart: function(){ 
+				console.log("onaudiostart", arguments);
+				addInfo("STARTED");
+			},
+			onaudioend: function(){ 
+				console.log("onaudioend", arguments); 
+				addInfo("END");
+			},
+			onrelease: function(){
+				console.log("onrelease", arguments);
+				addInfo("RELEASED");
+			},
+			onerror: function(){
+				console.error("onerror", arguments);
+				addInfo("RUNTIME ERROR - Check console");
+				processor.stop();
+			},
+			modules: myModules
+			
+		}, function(info){
+			//Processor ready
+			console.log(info); //Use 'info' to get details about source, sample-rate etc.
+			addInfo("READY");
+			//start
+			processor.start();
+			//wait 3s
+			setTimeout(function(){
+				//stop
+				processor.stop();
+				//wait 3s
+				setTimeout(function(){
+					processor.release();
+				}, 3000);
+			}, 3000);
+			
+		}, function(err){
+			//Initialization error
+			console.error(err);
+			addInfo("INIT. ERROR - Check console");
+		});
+	}
+	
+	//Tutorial Part 2
+	function tutorialPart2(){
+		setInfo("Tutorial 2");
+		
+		SepiaFW.webAudio.tryNativeStreamResampling = false;		//global option
+
+		var myModules = [];
+		var targetSampleRate = 16000;	//this is the sample-rate we want
+		var bufferSize = 512;			//size of samples generated
+
+		function resamplerCallback(data){
+			//data will include e.g.: data.samples and data.rms (volume)
+			console.log("resamplerCallback", data);
+		}
+		var resampler = {
+			name: 'speex-resample-switch',
+			settings: {
+				onmessage: resamplerCallback,
+				sendToModules: [],	//[moduleIndex] - filled below with index of wave-encoder module
+				options: {
+					processorOptions: {
+						targetSampleRate: targetSampleRate,
+						bufferSize: bufferSize,
+						resampleQuality: 5,			//1 (low quality) - 10 (best quality)
+						calculateRmsVolume: true,	//the resampler can calculate RMS signal volume
+						gain: 5.0,					//we can amplify the signal here
+						passThroughMode: 0			//0: none - only switch in our pipe atm
+					}
+				}
+			}
+		};
+		
+		function waveEncoderCallback(data){
+			//can be used to track capture state and get final WAV
+			//check: data.gate, data.output.wav, data.output.buffer
+			console.log("waveEncoderCallback", data);
+			if (data.gate && data.gate.isOpen === false){
+				//stop processor
+				processor.stop();
+				//get data
+				waveEncoder.handle.sendToModule({request: {get: "wave"}});
+				waveEncoder.handle.sendToModule({request: {get: "buffer"}});
+				//release after 3s
+				setTimeout(function(){
+					processor.release();
+				}, 3000);
+			}
+			if (data.output && data.output.wav){
+				//just for fun, add WAV to page:
+				var targetEle = document.body;
+				var blobType = "audio/wav";
+				SepiaFW.webAudio.addAudioElementToPage(targetEle, data.output.wav, blobType);
+			}
+		}
+		var waveEncoder = {
+			name: 'wave-encoder',
+			type: 'worker',
+			handle: {},		//will be updated on init. with ref. to node.
+			settings: {
+				onmessage: waveEncoderCallback,
+				options: {
+					setup: {
+						inputSampleRate: targetSampleRate,	//input of this will be ...
+						inputSampleSize: bufferSize,		//... output of resampler
+						lookbackBufferMs: 0,			//(experimental) ignore for now
+						recordBufferLimitMs: 8000,		//we can apply recording limit as milliseconds
+						//recordBufferLimitKb: 600,		//... or as kilobytes (default ~5MB)
+						isFloat32: false	//resampler gives int16 - use e.g. for buffer module 
+					}
+				}
+			}
+		};
+		
+		myModules.push(resampler);		//index 1
+		myModules.push(waveEncoder);	//index 2
+
+		//connect resampler output to wave-encoder input:
+		resampler.settings.sendToModules.push(2);
+		
+		var processor = new SepiaFW.webAudio.Processor({
+			onaudiostart: function(){ 
+				console.log("onaudiostart", arguments);
+				addInfo("STARTED");
+				waveEncoder.handle.sendToModule({gate: "open"});
+			},
+			onaudioend: function(){ 
+				console.log("onaudioend", arguments);
+				addInfo("END");
+			},
+			onrelease: function(){
+				console.log("onrelease", arguments);
+				addInfo("RELEASED");
+			},
+			onerror: function(){
+				console.error("onerror", arguments);
+				addInfo("RUNTIME ERROR - Check console");
+				processor.stop();
+			},
+			modules: myModules
+			
+		}, function(info){
+			//Processor ready
+			console.log(info); //Use 'info' to get details about source, sample-rate etc.
+			addInfo("READY");
+			//start
+			processor.start();
+			//wait 4s
+			setTimeout(function(){
+				//stop recorder
+				waveEncoder.handle.sendToModule({gate: "close"});
+			}, 4000);
+			
+		}, function(err){
+			//Initialization error
+			console.error(err);
+			addInfo("INIT. ERROR - Check console");
+		});
+	}
+</script>
+</body>
+</html>
