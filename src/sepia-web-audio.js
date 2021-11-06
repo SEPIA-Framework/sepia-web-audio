@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.7";
+	WebAudio.version = "0.9.8";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -1343,7 +1343,7 @@ if (!(typeof SepiaFW == "object")){
 	WebAudio.readFileAsBuffer = function(fileUrl, successCallback, errorCallback){
 		if (SepiaFW && SepiaFW.files){
 			//more robust method
-			SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer");
+			SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, "arraybuffer", WebAudio.contentFetchTimeout);
 		}else{
 			//fallback
 			xmlHttpCall('arraybuffer', fileUrl, successCallback, errorCallback);
@@ -1351,7 +1351,7 @@ if (!(typeof SepiaFW == "object")){
 	}
 	WebAudio.readFileAsText = function(fileUrl, successCallback, errorCallback){
 		if (SepiaFW && SepiaFW.files){
-			SepiaFW.files.fetch(fileUrl, successCallback, errorCallback);	//default: text
+			SepiaFW.files.fetch(fileUrl, successCallback, errorCallback, undefined, WebAudio.contentFetchTimeout);	//default: text
 		}else{
 			xmlHttpCall('text', fileUrl, successCallback, errorCallback);
 		}
@@ -1382,6 +1382,9 @@ if (!(typeof SepiaFW == "object")){
 			}
 		};
 		request.onerror = function(e){
+			errorCallback(e);
+		};
+		request.ontimeout = function(e){
 			errorCallback(e);
 		};
 		request.send();
