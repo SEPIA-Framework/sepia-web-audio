@@ -12,7 +12,7 @@
 	<link rel="stylesheet" href="src/visualization/uPlot.min.css?v=1.5.2">
 
 	<!--<script src="src/polyfills/audioworklet-polyfill.js"></script>-->
-	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.9"></script>
 	<script>
 		//set correct modules folder
 		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
@@ -552,10 +552,14 @@
 		}else{
 			fileUrl = "test-sounds/traffic_counting.ogg";
 		}
-		showLogMessage("createFileSource", fileUrl); 
+		showLogMessage("createFileSource", fileUrl);
+		var loop = true; 	//default is true
+		var onEndCallback = function(){
+			console.log("Audio file source stream ended."); 	//only triggers if loop=false
+		};
 		return SepiaFW.webAudio.createFileSource(fileUrl, {
 			targetSampleRate: targetSampleRate
-		});
+		}, loop, onEndCallback);
 	}
 	
 	//Audio node data/visualizations:
