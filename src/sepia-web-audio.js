@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.9";
+	WebAudio.version = "0.9.10";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -324,7 +324,7 @@ if (!(typeof SepiaFW == "object")){
 						if (!event || event.data == undefined){
 							//TODO: simply ignore?
 						}else if (event.data.moduleState == 1){
-							//STATE
+							//STATE: READY
 							thisProcessNode.isReady = true;
 							completeInitCondition("module-" + i);
 							if (event.data.moduleInfo) thisProcessNode.moduleInfo = event.data.moduleInfo;
@@ -336,6 +336,7 @@ if (!(typeof SepiaFW == "object")){
 								completeCallback(initInfo);
 							}
 						}else if (event.data.moduleState == 9 && !thisProcessNode.isTerminated){
+							//STATE: READY TO BE TERMINATED
 							if (typeof thisProcessNode.terminate == "function"){
 								try {
 									thisProcessNode.isTerminated = true;
@@ -345,6 +346,11 @@ if (!(typeof SepiaFW == "object")){
 									onError({name: "TerminateError", message: "Failed to terminate module", info: err});
 								}
 							}
+						}else if (event.data.moduleState == 10){
+							//STATE: CUSTOM INIT. ERROR
+							event.data.error.target = event.target;
+							onError(event.data.error);
+							
 						}else if (event.data.moduleResponse){
 							//RESPONSE to "on-demand" request
 							//TODO: ignore?
@@ -365,7 +371,7 @@ if (!(typeof SepiaFW == "object")){
 						if (moduleSetup.onmessage){
 							moduleSetup.onmessage(event.data, processNodes);
 						}
-					};
+					}
 					function onError(err){
 						//TODO: do something with 'completeInitCondition("module-" + i)' or abort whole processor?
 						var errorMessage;
@@ -373,6 +379,8 @@ if (!(typeof SepiaFW == "object")){
 							err.preventDefault();
 							errorMessage = JSON.parse(err.message.replace(/^Uncaught /, ""));
 							err.message = errorMessage;
+						}else{
+							errorMessage = err;
 						}
 						onProcessorError({
 							name: "AudioModuleProcessorException",
@@ -1425,8 +1433,20 @@ if (!(typeof SepiaFW == "object")){
 			}
 			return bytes;
 		}catch (error){
-			throw new Error("Converting base64 string to bytes failed.");
+			throw new Error("Converting base64 string to Uint8Array bytes array failed.");
 		}
+	}
+	function convertUint8ArrayToBase64String(uint8Array){
+		try {
+			return btoa(uint8Array.reduce(function(data, byte){ return data + String.fromCharCode(byte); }, ''));
+		}catch (error){
+			throw new Error("Converting Uint8Array to base64 string failed.");
+		}
+	}
+	//export
+	WebAudio.base64 = {
+		base64StringToUint8Array: convertBase64ToUint8Array,
+		uint8ArrayToBase64String: convertUint8ArrayToBase64String
 	}
 	
 	//Add audio data as audio element to element on page (or body)

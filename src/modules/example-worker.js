@@ -44,7 +44,7 @@ function constructWorker(options) {
 	postMessage({
 		//Default message type is "processing result", but it can be 'moduleState', 'moduleEvent' and 'moduleResponse' ("on-demand" requests) as well
 		//NOTE: only default processing (no tag) and 'moduleEvent' will be forwarded automatically
-		moduleState: 1,		//1=ready, 2=changed, 9=read for termination -- for "on-demand" requests outside of normal processing sequence use 'moduleResponse: true'
+		moduleState: 1,		//1=ready, 2=changed, 9=ready for termination, 10=custom error -- for "on-demand" requests outside of normal processing sequence use 'moduleResponse: true'
 		moduleInfo: {
 			hello: "world"
 		}
