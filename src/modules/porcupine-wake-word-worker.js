@@ -2,12 +2,15 @@
 importScripts('./shared/common.js');
 importScripts('./shared/ring-buffer.min.js');
 
-importScripts('./picovoice/porcupine-wasm-interface.js');
 var PorcupineKeywords = {
 	v14: {},
 	v15: {},
 	v16: {},
-	v19: {}
+	v19: {},
+	v20_en: {},
+	v20_de: {},
+	v20_es: {},
+	v20_fr: {}
 }
 
 onmessage = function(e){
@@ -56,6 +59,9 @@ let workerId = "porcupine-wake-word-worker-" + Math.round(Math.random() * 100000
 
 let porcupine;
 let porcupineVersion;
+let porcupineLanguage;
+let porcupineVersionAndLang;
+let porcupineAccessKey;
 let _Porcupine;
 
 let inputSampleRate;
@@ -99,9 +105,17 @@ function ready(){
 			inputSampleSize: inputSampleSize,
 			processBufferSize: processBufferSize,
 			porcupineVersion: porcupineVersion,
+			porcupineLanguage: porcupineLanguage,
+			porcupineAccessKey: !!porcupineAccessKey,
 			keywords: keywords,
 			sensitivities: sensitivities
 		}
+	});
+}
+function sendError(err){
+	postMessage({
+		moduleState: 10,
+		error: err
 	});
 }
 
@@ -140,34 +154,89 @@ function constructWorker(options) {
 	
 	porcupineVersion = ((options.setup.version || options.setup.porcupineVersion || 19) + "").replace(".", "").trim();
 	porcupineVersion = +porcupineVersion || 19;		//... because we support "19", "1.9", 1.9 and 19 ...
-	if (porcupineVersion <= 16){
-		importScripts('./picovoice/porcupine-wasm-module-' + "14" + '.js');		//we assume this works for 14-16?
-	}else{
-		if (isBase64Mode){
-			importScripts('./picovoice/porcupine-wasm-module-' + "19_b64" + '.js');
-		}else{
-			importScripts('./picovoice/porcupine-wasm-module-' + "19" + '.js');
-		}
-	}
+	porcupineLanguage = (options.setup.language || options.setup.porcupineLanguage || "en").toLowerCase().trim();
+	porcupineAccessKey = (options.setup.accessKey || options.setup.porcupineAccessKey || "").trim();
 	
-	keywords = options.setup.keywords || ["Computer"];
-	keywords.forEach(function(kw){
-		importScripts('./picovoice/porcupine-keywords/' + kw.replace(/\s+/, "_").toLowerCase() + "_wasm_" + porcupineVersion + '.js');
-	});
-	//TODO: use 'options.setup.keywordsData'
+	keywords = options.setup.keywords || ["Computer"]; 			//TODO: use 'options.setup.keywordsData'?
 	sensitivities = options.setup.sensitivities || [0.5];
 	
+	//load module
+	if (porcupineVersion <= 16){
+		//no language support - reset to default
+		porcupineLanguage = "en";
+		porcupineVersionAndLang = porcupineVersion;
+		importScripts('./picovoice/porcupine-wasm-module-' + "14" + '.js');		//we assume this works for 14-16?
+		importScripts('./picovoice/porcupine-wasm-interface.js');		//PorcupineBuilder
+	}else if (porcupineVersion <= 19){
+		//legacy language support
+		porcupineVersionAndLang = porcupineVersion;
+		if (porcupineLanguage != "en"){
+			porcupineVersionAndLang = porcupineVersion + "_" + porcupineLanguage;
+		}
+		if (isBase64Mode){
+			importScripts('./picovoice/porcupine-wasm-module-' + porcupineVersionAndLang + "_b64" + '.js');
+		}else{
+			importScripts('./picovoice/porcupine-wasm-module-' + porcupineVersionAndLang + '.js');
+		}
+		importScripts('./picovoice/porcupine-wasm-interface.js');		//PorcupineBuilder
+	}else{
+		//full language support since v20
+		porcupineVersionAndLang = porcupineVersion + "_" + porcupineLanguage;
+		importScripts('./picovoice/porcupine-wasm-interface-v2.js');	//PorcupineBuilder v2 (includes module)
+	}
+	
+	//load keywords (into 'PorcupineKeywords')
+	keywords.forEach(function(kw){
+		importScripts('./picovoice/porcupine-keywords/' + kw.replace(/\s+/, "_").toLowerCase() + "_wasm_" + porcupineVersionAndLang + '.js');
+	});
+		
 	//build Porcupine
 	PorcupineBuilder(wasmFileArrayBuffer, defaultWasmBinaryFile, function(buildResult){
 		_Porcupine = buildResult;
+		if (!_Porcupine){
+			sendError({name: "PorcupineModuleException", message: "'Porcupine' failed to build"});
+			return;
+		}
 		
-		var keywordsWithData = PorcupineKeywords["v" + porcupineVersion];
+		var keywordsWithData = PorcupineKeywords["v" + porcupineVersionAndLang];
 		keywords = Object.keys(keywordsWithData);
-		porcupine = _Porcupine.create(Object.values(keywordsWithData), new Float32Array(sensitivities));
 		
-		init();
-		
-		ready();
+		//Interface V1
+		if (porcupineVersion <= 19){
+			porcupine = _Porcupine.create(Object.values(keywordsWithData), new Float32Array(sensitivities));
+			
+			init();
+			ready();
+			
+		//Interface V2
+		}else{
+			var keywordsBase64 = [];
+			keywords.forEach(function(kwName, i){
+				keywordsBase64.push({
+					custom: kwName,
+					sensitivity: sensitivities[i],
+					base64: CommonConverters.uint8ArrayToBase64String(keywordsWithData[kwName])
+				});
+			});
+			_Porcupine.create(porcupineAccessKey, keywordsBase64).then(function(pp){
+				if (!pp){
+					throw JSON.stringify({name: "PorcupineModuleException", message: "Failed to create module."});
+				}else{
+					porcupine = pp;
+					try {
+						init();		//has its own exceptions
+						ready();
+					}catch(err){
+						sendError(err);
+					}
+				}
+			}).catch(function(err){
+				var msg = "Failed to create module.";
+				if (err && err.name) msg += " - Name: " + err.name;
+				if (err && err.message) msg += " - Message: " + err.message;
+				sendError({name: "PorcupineModuleException", message: msg, info: err});
+			});
+		}
 	});
 }
 
@@ -193,13 +262,27 @@ function process(data) {
 			}
 		}
 		if (gateIsOpen){
-			let keywordIndex = porcupine.process(data.samples[0]);
-			if (keywordIndex !== -1) {
-				postMessage({
-					keyword: keywords[keywordIndex]
+			if (porcupineVersion >= 20){
+				//v2
+				porcupine.process(data.samples[0]).then(function(keywordIndex){
+					sendResult(keywordIndex);
+				}).catch(function(err){
+					console.error("Porcupine processing exception, gate closing! Err.:", err);
+					gateControl(false);
 				});
-			}			
+			}else{
+				//v1.4 - 1.9
+				let keywordIndex = porcupine.process(data.samples[0]);
+				sendResult(keywordIndex);
+			}
 		}
+	}
+}
+function sendResult(keywordIndex){
+	if (keywordIndex !== -1) {
+		postMessage({
+			keyword: keywords[keywordIndex]
+		});
 	}
 }
 function handleEvent(data){
