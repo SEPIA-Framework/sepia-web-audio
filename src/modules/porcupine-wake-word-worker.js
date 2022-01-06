@@ -71,6 +71,7 @@ let processBufferSize;	//defines '_processRingBuffer' size together with 'inputS
 
 let keywords;
 let sensitivities;
+let keywordsRemoteLocation;
 
 let gateIsOpen = false;
 let _gateOpenTS = 0;
@@ -159,6 +160,7 @@ function constructWorker(options) {
 	
 	keywords = options.setup.keywords || ["Computer"]; 			//TODO: use 'options.setup.keywordsData'?
 	sensitivities = options.setup.sensitivities || [0.5];
+	keywordsRemoteLocation = options.setup.keywordsRemoteLocation;
 	
 	//load module
 	if (porcupineVersion <= 16){
@@ -186,9 +188,27 @@ function constructWorker(options) {
 	}
 	
 	//load keywords (into 'PorcupineKeywords')
+	var kwLoadErrors = false;
 	keywords.forEach(function(kw){
-		importScripts('./picovoice/porcupine-keywords/' + kw.replace(/\s+/, "_").toLowerCase() + "_wasm_" + porcupineVersionAndLang + '.js');
+		kw = kw.toLowerCase().trim();
+		//support custom paths
+		if (kw.indexOf("server:") == 0 || kw.indexOf("remote:") == 0){
+			if (keywordsRemoteLocation){
+				kw = kw.toLowerCase().replace(/^(server|remote):/, "").trim();
+				var dotVersion = +porcupineVersion/10 + "";
+				if (dotVersion.indexOf(".") < 0) dotVersion = dotVersion + ".0";	//Note to myself: supporting two different notations for version was a terrible idea!! (2.0 and 20 etc.)
+				importScripts(keywordsRemoteLocation.replace(/\/$/, "") + "/" + porcupineVersionAndLang.replace(/\d+/, dotVersion) + "/keywords/" + kw.replace(/\s+/, "_") + "_wasm_" + porcupineVersionAndLang + '.js');
+			}else{
+				kwLoadErrors = true;
+			}
+		}else{
+			importScripts('./picovoice/porcupine-keywords/' + kw.replace(/\s+/, "_") + "_wasm_" + porcupineVersionAndLang + '.js');
+		}
 	});
+	if (kwLoadErrors){
+		sendError({name: "PorcupineModuleException", message: "Failed to load one or more keywords (missing 'keywordsRemoteLocation' info?)"});
+		return;
+	}
 		
 	//build Porcupine
 	PorcupineBuilder(wasmFileArrayBuffer, defaultWasmBinaryFile, function(buildResult){
