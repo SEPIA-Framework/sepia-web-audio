@@ -382,7 +382,9 @@
 						porcupineLanguage: "en",
 						porcupineAccessKey: document.getElementById("porcupineAccessKey").value,
 						keywords: (porcupineVersion == 14? ["Hey SEPIA"] : ["Computer", "Jarvis", "Picovoice"]),
-						sensitivities: (porcupineVersion == 14? [wakeWordSensitivity] : [wakeWordSensitivity, wakeWordSensitivity, wakeWordSensitivity])
+						sensitivities: (porcupineVersion == 14? [wakeWordSensitivity] : [wakeWordSensitivity, wakeWordSensitivity, wakeWordSensitivity]),
+						keywordsRemoteLocation: ""		
+						//can be used in combination with keyword names like ["Server: My Word"] for path like: [keywordsRemoteLocation]/2.0_en/keywords/[my_word]_wasm_20_en.js
 					}
 				}
 			}
