@@ -192,6 +192,7 @@ let PorcupineBuilder = (function() {
             };
         };
 
+		//check for 'isLoaded' yourself or use 'moduleLoadCallback' instead (removed in V2)
         return {
             isLoaded: isLoaded,
             create: create

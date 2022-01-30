@@ -12,7 +12,7 @@
 	<link rel="stylesheet" href="src/visualization/uPlot.min.css?v=1.5.2">
 
 	<!--<script src="src/polyfills/audioworklet-polyfill.js"></script>-->
-	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.7"></script>
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.10"></script>
 	<script>
 		//set correct modules folder
 		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
@@ -104,9 +104,11 @@
 		<div><label>Porcupine Version:</label><select id="porcupineVersionSelect" onchange="setPorcupineVersion(+this.value);">
 			<option value="14" selected>v1.4</option>
 			<option value="19">v1.9</option>
+			<option value="20">v2.0 (en)</option>
 		</select></div>
 		<div style="display: inline-flex; align-items: center;"><label>Gate:</label><div id="wakeWordGateState"></div><label></label></div>
 		<div><label>Control:</label><button onclick="wakeWordSetGate('open');">Listen</button><button onclick="wakeWordSetGate('close');">Stop</button><label></label></div>
+		<div><label>Key (v2+):</label><input id="porcupineAccessKey" placeholder="access key required for v2+"></div>
 	</div>
 	<div id="waveEncoderControls" class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
@@ -366,7 +368,7 @@
 			name: 'porcupine-wake-word-worker',
 			type: 'worker',
 			preLoad: {
-				wasmFile: ('src/modules/picovoice/porcupine-' + porcupineVersion + '.wasm')
+				wasmFile: ('src/modules/picovoice/porcupine-' + (porcupineVersion > 19? (porcupineVersion + "_" + porcupineLanguage) : porcupineVersion) + '.wasm')
 			},
 			settings: {
 				onmessage: onWakeWordMessage,
@@ -377,8 +379,12 @@
 						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
 						bufferSize: resamplerBufferSize,		//TODO: this has no effect yet
 						version: porcupineVersion,
+						porcupineLanguage: "en",
+						porcupineAccessKey: document.getElementById("porcupineAccessKey").value,
 						keywords: (porcupineVersion == 14? ["Hey SEPIA"] : ["Computer", "Jarvis", "Picovoice"]),
-						sensitivities: (porcupineVersion == 14? [wakeWordSensitivity] : [wakeWordSensitivity, wakeWordSensitivity, wakeWordSensitivity])
+						sensitivities: (porcupineVersion == 14? [wakeWordSensitivity] : [wakeWordSensitivity, wakeWordSensitivity, wakeWordSensitivity]),
+						keywordsRemoteLocation: ""		
+						//can be used in combination with keyword names like ["Server: My Word"] for path like: [keywordsRemoteLocation]/2.0_en/keywords/[my_word]_wasm_20_en.js
 					}
 				}
 			}
@@ -443,7 +449,8 @@
 			startSuspended: true,
 			debugLog: onDebugLog,
 			customSourceTest: useWhiteNoiseTest,
-			customSource: customSource
+			customSource: customSource,
+			initializerTimeout: 8000
 			
 		}, function(msg){
 			//Init. ready
@@ -552,10 +559,14 @@
 		}else{
 			fileUrl = "test-sounds/traffic_counting.ogg";
 		}
-		showLogMessage("createFileSource", fileUrl); 
+		showLogMessage("createFileSource", fileUrl);
+		var loop = true; 	//default is true
+		var onEndCallback = function(){
+			console.log("Audio file source stream ended."); 	//only triggers if loop=false
+		};
 		return SepiaFW.webAudio.createFileSource(fileUrl, {
 			targetSampleRate: targetSampleRate
-		});
+		}, loop, onEndCallback);
 	}
 	
 	//Audio node data/visualizations:
@@ -842,6 +853,7 @@
 	var wakeWordGateOpen = false;
 	var wakeWordSensitivity = +document.getElementById("wakeWordSensitivity").value;
 	var porcupineVersion = +document.getElementById("porcupineVersionSelect").value;
+	var porcupineLanguage = "en";	//TODO: add more
 	function setWakeWordSensitivity(sense){
 		wakeWordSensitivity = sense;
 		console.log("wakeWordSensitivity", wakeWordSensitivity);
