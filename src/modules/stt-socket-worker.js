@@ -225,6 +225,7 @@ function constructWorker(options){
 		engineOptions.samplerate = inputSampleRate;
 		engineOptions.continuous = continuous;
 		if (options.setup.language) engineOptions.language = options.setup.language;	//e.g.: "de-DE"
+		if (options.setup.task) engineOptions.task = options.setup.task;				//e.g.: "conversation"
 		if (options.setup.model) engineOptions.model = options.setup.model;				//e.g.: "vosk-model-small-de"
 		if (options.setup.optimizeFinalResult != undefined) engineOptions.optimizeFinalResult = options.setup.optimizeFinalResult;
 		engineOptions.doDebug = doDebug;
@@ -243,7 +244,7 @@ function constructWorker(options){
 			},
 			onReady: function(activeOptions){
 				if (doDebug) console.error("SttSocketWorker - DEBUG - CONNECTION READY", activeOptions);
-				sendConnectionEvent("ready");
+				sendConnectionEvent("ready", activeOptions);
 				//make sure stream starts or continues
 				startOrContinueStream();
 			},
