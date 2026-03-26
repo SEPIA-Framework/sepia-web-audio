@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.11";
+	WebAudio.version = "0.9.12";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -42,6 +42,7 @@ if (!(typeof SepiaFW == "object")){
 
 	//Media constraints
 	WebAudio.getSupportedAudioConstraints = function(){
+		//get supported constraints with their default value
 		var sc = navigator.mediaDevices.getSupportedConstraints();		//TODO: can fail due to non-SSL (secure context)
 		var c = {}, owc = WebAudio.overwriteSupportedAudioConstraints;
 		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : undefined;
@@ -53,6 +54,16 @@ if (!(typeof SepiaFW == "object")){
 		//other options: latency: double, sampleSize: 16
 		return c;
 	};
+	WebAudio.setDefaultAudioConstraints = function(newDefaults){
+		//set default value of supported constraints
+		if (!newDefaults) return;
+		var keys = Object.keys(newDefaults);
+		if (!keys.length) return;
+		var sac = WebAudio.getSupportedAudioConstraints();
+		keys.forEach((v) => {
+			if (v in sac) WebAudio.overwriteSupportedAudioConstraints[v] = newDefaults[v];
+		});
+	}
 	WebAudio.overwriteSupportedAudioConstraints = {};
 	
 	//Mime types
@@ -107,7 +118,6 @@ if (!(typeof SepiaFW == "object")){
 		if (!initErrorCallback) initErrorCallback = WebAudio.defaultProcessorOptions.initErrorCallback;
 		if (!initSuccessCallback) initSuccessCallback = WebAudio.defaultProcessorOptions.initSuccessCallback;
 		if (!options) options = {};
-		//TODO: add mic sinkId option
 		
 		var onProcessorError = options.onerror || WebAudio.defaultProcessorOptions.onerror;
 		var moduleFolder = (options.moduleFolder || WebAudio.defaultProcessorOptions.moduleFolder).replace(/\/$/, "") + "/";
@@ -588,6 +598,7 @@ if (!(typeof SepiaFW == "object")){
 			thisProcessor.mainAudioContext = mainAudioContext;
 			thisProcessor.source = source;
 			thisProcessor.sourceInfo = metaInfo;
+			thisProcessor.destinationNode = destinationNode;
 			sourceInitInfo = metaInfo;
 			
 			//controls
@@ -660,6 +671,7 @@ if (!(typeof SepiaFW == "object")){
 					});
 					thisProcessor.processNodes = null;
 					thisProcessor.source = null;
+					thisProcessor.destinationNode = null;
 					//TODO: check state before calling close?
 					return mainAudioContext.close();
 				})
@@ -821,13 +833,19 @@ if (!(typeof SepiaFW == "object")){
 	WebAudio.getAudioDevices = function(timeout){
 		return new Promise(function(resolve, reject){
 			(async function(){
+				//'getUserMedia' and 'enumerateDevices' can be empty in unsecure context!
+				if (!navigator.mediaDevices.getUserMedia){
+					return reject({message: "MediaDevices 'getUserMedia' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "NotSupportedError"});
+				}
 				if (!navigator.mediaDevices.enumerateDevices){
 					return reject({message: "MediaDevices 'enumerateDevices' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "NotSupportedError"});
 				}
 				//List media devices - NOTE: if the user does not answer the permission request this will never resolve ... so we fake a timeout
 				var didTimeout = false;
 				var timeoutTimer = undefined;
-				navigator.mediaDevices.enumerateDevices().then(function(devices){
+				navigator.mediaDevices.getUserMedia({audio: true}).then(function(mediaStream){
+					return navigator.mediaDevices.enumerateDevices()
+				}).then(function(devices){
 					if (didTimeout)	return;	//NOT reject
 					else clearTimeout(timeoutTimer);
 					//look for audio in/out
@@ -856,7 +874,7 @@ if (!(typeof SepiaFW == "object")){
 	
 	//Get microphone via MediaDevices interface
 	WebAudio.getMicrophone = function(options, asyncCreateOrUpdateAudioContext, timeout){
-		if (!options) options = {};		//e.g.: 'targetSampleRate'
+		if (!options) options = {};		//e.g.: 'targetSampleRate', 'micAudioConstraints'
 		if (!asyncCreateOrUpdateAudioContext){
 			asyncCreateOrUpdateAudioContext = async function(forceNew, ignoreOptions){
 				var audioContext = WebAudio.createAudioContext(options, ignoreOptions);
@@ -872,7 +890,13 @@ if (!(typeof SepiaFW == "object")){
 		return new Promise(function(resolve, reject){
 			(async function(){
 				var constraints = JSON.parse(JSON.stringify(WebAudio.getSupportedAudioConstraints()));
-				//TODO: make microphone constraints accessible via options
+				//set custom constraints like deviceId (similar to sinkId in AudioContext), noiseSuppression, echoCancellation, autoGainControl
+				if (options.micAudioConstraints){
+					Object.keys(constraints).forEach((c) => {
+						if (c in options.micAudioConstraints) constraints[c] = options.micAudioConstraints[c];
+					});
+				}
+				//'targetSampleRate' is kind of a global settings and overwrites the audio constraints value
 				if (constraints.sampleRate && options.targetSampleRate) constraints.sampleRate = options.targetSampleRate;
 				//other options: latency: double, sampleSize: 16
 				var audioVideoConstraints = { 
