@@ -48,6 +48,7 @@ if (!(typeof SepiaFW == "object")){
 		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : undefined;
 		if (sc.channelCount) c.channelCount = (owc.channelCount != undefined)? owc.channelCount : 1;
 		if (sc.noiseSuppression) c.noiseSuppression = (owc.noiseSuppression != undefined)? owc.noiseSuppression : true;
+		if (sc.voiceIsolation) c.voiceIsolation = (owc.voiceIsolation != undefined)? owc.voiceIsolation : false;
 		if (sc.autoGainControl) c.autoGainControl = (owc.autoGainControl != undefined)? owc.autoGainControl : false;
 		if (sc.echoCancellation) c.echoCancellation = (owc.echoCancellation != undefined)? owc.echoCancellation : false;
 		if (sc.sampleRate) c.sampleRate = (owc.sampleRate != undefined)? owc.sampleRate : 48000;
@@ -935,6 +936,9 @@ if (!(typeof SepiaFW == "object")){
 					
 					if (!options.destinationNode){
 						options.destinationNode = audioContext.createMediaStreamDestination();
+						if (audioVideoConstraints.audio.channelCount){
+							options.destinationNode.channelCount = audioVideoConstraints.audio.channelCount;
+						}
 					}
 					
 					var info = { type: "mic" };
@@ -987,11 +991,24 @@ if (!(typeof SepiaFW == "object")){
 		return new Promise(function(resolve, reject){
 			(async function(){
 				try {
-					var sampleRate = sourceInfo.settings.sampleRate;
+					if (!sourceInfo?.settings){
+						//extract settings from track
+						var audioTrack = stream?.getAudioTracks()?.at(0);
+						var trackSettings = audioTrack?.getSettings();
+						if (trackSettings){
+							if (!sourceInfo) sourceInfo = {};
+							sourceInfo.settings = {
+								sampleRate: trackSettings.sampleRate,
+								channelCount: trackSettings.channelCount
+							}
+							if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - settings from audio track:", sourceInfo.settings);
+						}
+					}
+					var sampleRate = sourceInfo?.settings?.sampleRate;
 					if (!sampleRate){
 						return reject({message: "Sample-rate unknown! Please add correct 'sourceInfo'.", name: "AudioRecorderError"});
 					}
-					var channels = sourceInfo.settings.channelCount;
+					var channels = sourceInfo?.settings?.channelCount;
 					if (channels > 1){
 						//TODO: we only support MONO atm
 						return reject({message: "Sorry, but this recorder only supports MONO audio at the moment.", name: "NotSupportedError"});
@@ -1008,10 +1025,14 @@ if (!(typeof SepiaFW == "object")){
 					}else if (!MediaRecorder.isTypeSupported(mimeType)){
 						return reject({message: ("MIME-Type '" + mimeType + "' is not supported!"), name: "NotSupportedError"});
 					}else{
-						var mediaRecorder = new MediaRecorder(stream, {
+						var mrOptions = {
 							mimeType: mimeType,
-							bitsPerSecond: (sampleRate * 2 * channels)
-						});
+							audioBitsPerSecond: (sampleRate * 2 * channels)	//target Bits for audio (phone: 16 kbps, podcast: 32 kbps, music: >128kbps)
+							//bitsPerSecond: (sampleRate * 2 * channels) 	//combined with video
+						}
+						if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - Creating MediaRecorder from source settings:",
+							sourceInfo.settings, "with options:", mrOptions);
+						var mediaRecorder = new MediaRecorder(stream, mrOptions);
 						var startedTS, stoppedTS;
 						var triggeredLastData = false;
 						
@@ -1023,7 +1044,7 @@ if (!(typeof SepiaFW == "object")){
 						mediaRecorder.onstop = function(e){
 							//var blob = new Blob(chunks, {'type' : mimeType});
 							//chunks = [];
-							//console.log("onstop", "state", mediaRecorder.state);		//DEBUG
+							if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'onstop' with state:", mediaRecorder.state);
 							if (onStop && !recorderOptions.decodeToAudioBuffer){
 								onStop();		//TODO: we delay stop if we need to decode the blob first to keep original order
 							}
@@ -1033,7 +1054,6 @@ if (!(typeof SepiaFW == "object")){
 							//decode chunks
 							if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
 								//catch last 'ondataavailable' and delay stop
-								//console.log("ondataavailable", "state", mediaRecorder.state);		//DEBUG
 								if (mediaRecorder.state == "inactive") triggeredLastData = true;
 								if (e && e.data){
 									let startDecode = Date.now();
@@ -1062,7 +1082,7 @@ if (!(typeof SepiaFW == "object")){
 						var stop = function(){
 							if (stopTimer) clearTimeout(stopTimer);
 							stoppedTS = Date.now();
-							//console.log("AudioRecorder state:", mediaRecorder.state);		//DEBUG
+							if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'stop' with state:", mediaRecorder.state);
 							if (mediaRecorder.state != "inactive") mediaRecorder.stop();
 						};
 						var start = function(){
@@ -1070,8 +1090,10 @@ if (!(typeof SepiaFW == "object")){
 							stoppedTS = undefined;
 							triggeredLastData = false;
 							if (sampleTime){
+								if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'start' with 'sampleTime':", sampleTime);
 								mediaRecorder.start(sampleTime);
 							}else{
+								if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'start' with 'recordLimitMs':", recorderOptions.recordLimitMs);
 								mediaRecorder.start();
 								if (recorderOptions.recordLimitMs){
 									stopTimer = setTimeout(stop, recorderOptions.recordLimitMs);	//NOTE: we need this because we have no intermediate results
