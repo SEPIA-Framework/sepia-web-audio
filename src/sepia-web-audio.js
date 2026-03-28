@@ -45,7 +45,7 @@ if (!(typeof SepiaFW == "object")){
 		//get supported constraints with their default value
 		var sc = navigator.mediaDevices.getSupportedConstraints();		//TODO: can fail due to non-SSL (secure context)
 		var c = {}, owc = WebAudio.overwriteSupportedAudioConstraints;
-		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : undefined;
+		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : null; //NOTE: use 'null' to keep the key in JSON.stringify!
 		if (sc.channelCount) c.channelCount = (owc.channelCount != undefined)? owc.channelCount : 1;
 		if (sc.noiseSuppression) c.noiseSuppression = (owc.noiseSuppression != undefined)? owc.noiseSuppression : true;
 		if (sc.voiceIsolation) c.voiceIsolation = (owc.voiceIsolation != undefined)? owc.voiceIsolation : false;
@@ -894,7 +894,14 @@ if (!(typeof SepiaFW == "object")){
 				//set custom constraints like deviceId (similar to sinkId in AudioContext), noiseSuppression, echoCancellation, autoGainControl
 				if (options.micAudioConstraints){
 					Object.keys(constraints).forEach((c) => {
-						if (c in options.micAudioConstraints) constraints[c] = options.micAudioConstraints[c];
+						if (c in options.micAudioConstraints){
+							let cVal = options.micAudioConstraints[c];
+							if (cVal && c == "deviceId" && !cVal?.ideal && !cVal?.exact){
+								constraints[c] = {exact: cVal};
+							}else{
+								constraints[c] = cVal;
+							}
+						}
 					});
 				}
 				//'targetSampleRate' is kind of a global settings and overwrites the audio constraints value
