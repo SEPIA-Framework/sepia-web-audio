@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.11";
+	WebAudio.version = "0.9.12";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -42,17 +42,29 @@ if (!(typeof SepiaFW == "object")){
 
 	//Media constraints
 	WebAudio.getSupportedAudioConstraints = function(){
+		//get supported constraints with their default value
 		var sc = navigator.mediaDevices.getSupportedConstraints();		//TODO: can fail due to non-SSL (secure context)
 		var c = {}, owc = WebAudio.overwriteSupportedAudioConstraints;
-		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : undefined;
+		if (sc.deviceId) c.deviceId = (owc.deviceId != undefined)? owc.deviceId : null; //NOTE: use 'null' to keep the key in JSON.stringify!
 		if (sc.channelCount) c.channelCount = (owc.channelCount != undefined)? owc.channelCount : 1;
 		if (sc.noiseSuppression) c.noiseSuppression = (owc.noiseSuppression != undefined)? owc.noiseSuppression : true;
+		if (sc.voiceIsolation) c.voiceIsolation = (owc.voiceIsolation != undefined)? owc.voiceIsolation : false;
 		if (sc.autoGainControl) c.autoGainControl = (owc.autoGainControl != undefined)? owc.autoGainControl : false;
 		if (sc.echoCancellation) c.echoCancellation = (owc.echoCancellation != undefined)? owc.echoCancellation : false;
 		if (sc.sampleRate) c.sampleRate = (owc.sampleRate != undefined)? owc.sampleRate : 48000;
 		//other options: latency: double, sampleSize: 16
 		return c;
 	};
+	WebAudio.setDefaultAudioConstraints = function(newDefaults){
+		//set default value of supported constraints
+		if (!newDefaults) return;
+		var keys = Object.keys(newDefaults);
+		if (!keys.length) return;
+		var sac = WebAudio.getSupportedAudioConstraints();
+		keys.forEach((v) => {
+			if (v in sac) WebAudio.overwriteSupportedAudioConstraints[v] = newDefaults[v];
+		});
+	}
 	WebAudio.overwriteSupportedAudioConstraints = {};
 	
 	//Mime types
@@ -107,7 +119,6 @@ if (!(typeof SepiaFW == "object")){
 		if (!initErrorCallback) initErrorCallback = WebAudio.defaultProcessorOptions.initErrorCallback;
 		if (!initSuccessCallback) initSuccessCallback = WebAudio.defaultProcessorOptions.initSuccessCallback;
 		if (!options) options = {};
-		//TODO: add mic sinkId option
 		
 		var onProcessorError = options.onerror || WebAudio.defaultProcessorOptions.onerror;
 		var moduleFolder = (options.moduleFolder || WebAudio.defaultProcessorOptions.moduleFolder).replace(/\/$/, "") + "/";
@@ -588,6 +599,7 @@ if (!(typeof SepiaFW == "object")){
 			thisProcessor.mainAudioContext = mainAudioContext;
 			thisProcessor.source = source;
 			thisProcessor.sourceInfo = metaInfo;
+			thisProcessor.destinationNode = destinationNode;
 			sourceInitInfo = metaInfo;
 			
 			//controls
@@ -660,6 +672,7 @@ if (!(typeof SepiaFW == "object")){
 					});
 					thisProcessor.processNodes = null;
 					thisProcessor.source = null;
+					thisProcessor.destinationNode = null;
 					//TODO: check state before calling close?
 					return mainAudioContext.close();
 				})
@@ -821,13 +834,19 @@ if (!(typeof SepiaFW == "object")){
 	WebAudio.getAudioDevices = function(timeout){
 		return new Promise(function(resolve, reject){
 			(async function(){
+				//'getUserMedia' and 'enumerateDevices' can be empty in unsecure context!
+				if (!navigator.mediaDevices.getUserMedia){
+					return reject({message: "MediaDevices 'getUserMedia' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "NotSupportedError"});
+				}
 				if (!navigator.mediaDevices.enumerateDevices){
 					return reject({message: "MediaDevices 'enumerateDevices' is not available! Check if context is secure (SSL, HTTPS, etc.).", name: "NotSupportedError"});
 				}
 				//List media devices - NOTE: if the user does not answer the permission request this will never resolve ... so we fake a timeout
 				var didTimeout = false;
 				var timeoutTimer = undefined;
-				navigator.mediaDevices.enumerateDevices().then(function(devices){
+				navigator.mediaDevices.getUserMedia({audio: true}).then(function(mediaStream){
+					return navigator.mediaDevices.enumerateDevices()
+				}).then(function(devices){
 					if (didTimeout)	return;	//NOT reject
 					else clearTimeout(timeoutTimer);
 					//look for audio in/out
@@ -856,7 +875,7 @@ if (!(typeof SepiaFW == "object")){
 	
 	//Get microphone via MediaDevices interface
 	WebAudio.getMicrophone = function(options, asyncCreateOrUpdateAudioContext, timeout){
-		if (!options) options = {};		//e.g.: 'targetSampleRate'
+		if (!options) options = {};		//e.g.: 'targetSampleRate', 'micAudioConstraints'
 		if (!asyncCreateOrUpdateAudioContext){
 			asyncCreateOrUpdateAudioContext = async function(forceNew, ignoreOptions){
 				var audioContext = WebAudio.createAudioContext(options, ignoreOptions);
@@ -872,7 +891,20 @@ if (!(typeof SepiaFW == "object")){
 		return new Promise(function(resolve, reject){
 			(async function(){
 				var constraints = JSON.parse(JSON.stringify(WebAudio.getSupportedAudioConstraints()));
-				//TODO: make microphone constraints accessible via options
+				//set custom constraints like deviceId (similar to sinkId in AudioContext), noiseSuppression, echoCancellation, autoGainControl
+				if (options.micAudioConstraints){
+					Object.keys(constraints).forEach((c) => {
+						if (c in options.micAudioConstraints){
+							let cVal = options.micAudioConstraints[c];
+							if (cVal && c == "deviceId" && !cVal?.ideal && !cVal?.exact){
+								constraints[c] = {exact: cVal};
+							}else{
+								constraints[c] = cVal;
+							}
+						}
+					});
+				}
+				//'targetSampleRate' is kind of a global settings and overwrites the audio constraints value
 				if (constraints.sampleRate && options.targetSampleRate) constraints.sampleRate = options.targetSampleRate;
 				//other options: latency: double, sampleSize: 16
 				var audioVideoConstraints = { 
@@ -911,6 +943,9 @@ if (!(typeof SepiaFW == "object")){
 					
 					if (!options.destinationNode){
 						options.destinationNode = audioContext.createMediaStreamDestination();
+						if (audioVideoConstraints.audio.channelCount){
+							options.destinationNode.channelCount = audioVideoConstraints.audio.channelCount;
+						}
 					}
 					
 					var info = { type: "mic" };
@@ -963,11 +998,24 @@ if (!(typeof SepiaFW == "object")){
 		return new Promise(function(resolve, reject){
 			(async function(){
 				try {
-					var sampleRate = sourceInfo.settings.sampleRate;
+					if (!sourceInfo?.settings){
+						//extract settings from track
+						var audioTrack = stream?.getAudioTracks()?.at(0);
+						var trackSettings = audioTrack?.getSettings();
+						if (trackSettings){
+							if (!sourceInfo) sourceInfo = {};
+							sourceInfo.settings = {
+								sampleRate: trackSettings.sampleRate,
+								channelCount: trackSettings.channelCount
+							}
+							if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - settings from audio track:", sourceInfo.settings);
+						}
+					}
+					var sampleRate = sourceInfo?.settings?.sampleRate;
 					if (!sampleRate){
 						return reject({message: "Sample-rate unknown! Please add correct 'sourceInfo'.", name: "AudioRecorderError"});
 					}
-					var channels = sourceInfo.settings.channelCount;
+					var channels = sourceInfo?.settings?.channelCount;
 					if (channels > 1){
 						//TODO: we only support MONO atm
 						return reject({message: "Sorry, but this recorder only supports MONO audio at the moment.", name: "NotSupportedError"});
@@ -984,10 +1032,14 @@ if (!(typeof SepiaFW == "object")){
 					}else if (!MediaRecorder.isTypeSupported(mimeType)){
 						return reject({message: ("MIME-Type '" + mimeType + "' is not supported!"), name: "NotSupportedError"});
 					}else{
-						var mediaRecorder = new MediaRecorder(stream, {
+						var mrOptions = {
 							mimeType: mimeType,
-							bitsPerSecond: (sampleRate * 2 * channels)
-						});
+							audioBitsPerSecond: (sampleRate * 2 * channels)	//target Bits for audio (phone: 16 kbps, podcast: 32 kbps, music: >128kbps)
+							//bitsPerSecond: (sampleRate * 2 * channels) 	//combined with video
+						}
+						if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - Creating MediaRecorder from source settings:",
+							sourceInfo.settings, "with options:", mrOptions);
+						var mediaRecorder = new MediaRecorder(stream, mrOptions);
 						var startedTS, stoppedTS;
 						var triggeredLastData = false;
 						
@@ -999,7 +1051,7 @@ if (!(typeof SepiaFW == "object")){
 						mediaRecorder.onstop = function(e){
 							//var blob = new Blob(chunks, {'type' : mimeType});
 							//chunks = [];
-							//console.log("onstop", "state", mediaRecorder.state);		//DEBUG
+							if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'onstop' with state:", mediaRecorder.state);
 							if (onStop && !recorderOptions.decodeToAudioBuffer){
 								onStop();		//TODO: we delay stop if we need to decode the blob first to keep original order
 							}
@@ -1009,7 +1061,6 @@ if (!(typeof SepiaFW == "object")){
 							//decode chunks
 							if (onDataAvailable) mediaRecorder.ondataavailable = function(e){
 								//catch last 'ondataavailable' and delay stop
-								//console.log("ondataavailable", "state", mediaRecorder.state);		//DEBUG
 								if (mediaRecorder.state == "inactive") triggeredLastData = true;
 								if (e && e.data){
 									let startDecode = Date.now();
@@ -1038,7 +1089,7 @@ if (!(typeof SepiaFW == "object")){
 						var stop = function(){
 							if (stopTimer) clearTimeout(stopTimer);
 							stoppedTS = Date.now();
-							//console.log("AudioRecorder state:", mediaRecorder.state);		//DEBUG
+							if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'stop' with state:", mediaRecorder.state);
 							if (mediaRecorder.state != "inactive") mediaRecorder.stop();
 						};
 						var start = function(){
@@ -1046,8 +1097,10 @@ if (!(typeof SepiaFW == "object")){
 							stoppedTS = undefined;
 							triggeredLastData = false;
 							if (sampleTime){
+								if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'start' with 'sampleTime':", sampleTime);
 								mediaRecorder.start(sampleTime);
 							}else{
+								if (recorderOptions.showDebugInfo) console.log("AudioRecorder - debug - called 'start' with 'recordLimitMs':", recorderOptions.recordLimitMs);
 								mediaRecorder.start();
 								if (recorderOptions.recordLimitMs){
 									stopTimer = setTimeout(stop, recorderOptions.recordLimitMs);	//NOTE: we need this because we have no intermediate results
