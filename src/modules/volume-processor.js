@@ -22,7 +22,7 @@ class VolumeProcessor extends AudioWorkletProcessor {
 		//ready
 		function ready(){
 			that.port.postMessage({
-				moduleState: 1,		//1=ready, 2=changed, 9=read for termination
+				moduleState: 1,		//1=ready, 2=changed, 9=ready for termination
 				moduleInfo: {
 					sourceSamplerate: that.sourceSamplerate,
 					fps: that.fps,

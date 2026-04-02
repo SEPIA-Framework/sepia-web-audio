@@ -1,4 +1,4 @@
-//TODO: 'import' not yet supported by FF :-( (Dec 2020)
+//TODO: 'import' wasn't fully supported yet by FF (Dec 2020) when this lib was first created. To use it, we need to add exports to the shared libs
 //import { SampleRateException, SampleSizeException } from './shared/common.js';
 //import { RingBuffer } from './shared/ring-buffer.min.js';
 //import { SpeexResampler } from './speex/speex-resampler-interface.min.js';
@@ -10,6 +10,7 @@ var speexModule;
 
 class SpeexResampleProcessor extends AudioWorkletProcessor {
 	
+	//TODO: this should be rewritten to something like 'static SampleRateException = class extends Error {...'
 	get SampleRateException() {
 		return function(message){
 			this.message = message;
