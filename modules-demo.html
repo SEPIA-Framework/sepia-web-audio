@@ -12,7 +12,7 @@
 	<link rel="stylesheet" href="src/visualization/uPlot.min.css?v=1.5.2">
 
 	<!--<script src="src/polyfills/audioworklet-polyfill.js"></script>-->
-	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.10"></script>
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.12"></script>
 	<script>
 		//set correct modules folder
 		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
@@ -492,7 +492,8 @@
 		channelCount: '<div><label>channelCount:</label><input id="micChannelCount" style="width: 24px;" value="1" onchange="setMicOption(\'channelCount\', +this.value);"></div>',
 		noiseSuppression: '<div><label>noiseSuppression:</label><input id="micNoiseSuppression" type="checkbox" checked onchange="setMicOption(\'noiseSuppression\', this.checked);"></div>',
 		autoGainControl: '<div><label>autoGainControl:</label><input id="micAutoGainControl" type="checkbox" onchange="setMicOption(\'autoGainControl\', this.checked);"></div>',
-		echoCancellation: '<div><label>echoCancellation:</label><input id="micEchoCancellation" type="checkbox" onchange="setMicOption(\'echoCancellation\', this.checked);"></div>'
+		echoCancellation: '<div><label>echoCancellation:</label><input id="micEchoCancellation" type="checkbox" onchange="setMicOption(\'echoCancellation\', this.checked);"></div>',
+		voiceIsolation: '<div><label>voiceIsolation:</label><input id="micVoiceIsolation" type="checkbox" onchange="setMicOption(\'voiceIsolation\', this.checked);"></div>'
 	};
 	(function(){
 		var micO = document.getElementById("micOptions");
@@ -508,9 +509,11 @@
 		});
 		var devSel = document.getElementById("micDeviceId");
 		devSel.innerHTML = '<option value="" selected>Default</option>';
+		//NOTE: this will automatically ask for permission to use the microphone (if not given already)
 		SepiaFW.webAudio.getAudioDevices().then(function(devices){
 			window.audioInputDevicesFound = devices.input;
 			Object.keys(devices.input).forEach(function(label, i){
+				if (!label) return;
 				var deviceId = devices.input[label];
 				var opt = document.createElement("option");
 				opt.textContent = label;
@@ -545,9 +548,9 @@
 	}
 	inputSourceChanged();
 	function setMicOption(optionName, value){
-		//This is the 'brute-force' method to set microphone constraints ... but they are not yet accessible via options
+		//This is the 'brute-force' method to set microphone constraints, 'micAudioConstraints' would be the Processor option.
 		console.log("Set mic constraint option", optionName, value);
-		SepiaFW.webAudio.overwriteSupportedAudioConstraints[optionName] = value;
+		SepiaFW.webAudio.setDefaultAudioConstraints({[optionName]: value});
 	}
 	
 	//Custom audio nodes
