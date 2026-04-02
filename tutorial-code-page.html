@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>SEPIA Web Audio Tutorial Code</title>
 
-	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.11"></script>
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.12"></script>
 	<script>
 		//set correct modules folder
 		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
@@ -22,9 +22,14 @@
 	<div>
 		<button onclick="tutorialPart1();">Tutorial Part 1 - Buffer Processing (3s)</button>
 		<button onclick="tutorialPart2();">Tutorial Part 2 - Resample and WAV encode (4s)</button>
+		<button onclick="tutorialPart3();">Tutorial Part 3 - Resample and record (6s)</button>
 		<button onclick="window.location.reload();">Reload page</button>
 	</div>
-	<textarea id="info" style="width: 100%; min-height: 150px;"></textarea>
+	<textarea id="info" style="width: 100%; min-height: 175px;"></textarea>
+	<div id="recorder-out" style="display: none;">
+		<figure><figcaption>Player for recording (Tutorial 3):</figcaption><audio controls src=""></audio></figure>
+	</div>
+	<p>--- Tutorial 2 recordings will appear below ---</p>
 </div>
 <script type='text/javascript'>
 	if (!window.SepiaFW) alert("SEPIA Web Audio Library not found or not supported (IE11?)!");
@@ -45,10 +50,16 @@
 		setInfo("Tutorial 1");
 		
 		var myModules = [];
+		var firstModuleCallback = true;
 
 		function bufferCallback(data){
 			//handle samples here using: data.samples
 			console.log("bufferCallback", data);
+			if (data.samples && firstModuleCallback){
+				//first callback with sample data
+				firstModuleCallback = false;
+				addInfo("Module info - channels: " + data.channels + ", sample-rate: " + data.sampleRate);
+			}
 		}
 		myModules.push({
 			name: 'buffer-switch',
@@ -85,8 +96,15 @@
 			
 		}, function(info){
 			//Processor ready
-			console.log(info); //Use 'info' to get details about source, sample-rate etc.
+			console.log("Processor info:", info); //Use 'info' to get details about source, sample-rate etc.
 			addInfo("READY");
+			var si = info.sourceInfo;
+			addInfo("Source info - label: " + si.label);
+			addInfo("Source info - sample-rate: " + si.settings.sampleRate + " - channels: " + si.settings.channelCount);
+			//addInfo("Processor target sample-rate: " + info.targetSampleRate);
+			let {noiseSuppression, echoCancellation, autoGainControl, voiceIsolation} = si.settings;
+			addInfo("Source info - constraints: " + JSON.stringify(
+				{noiseSuppression, echoCancellation, autoGainControl, voiceIsolation}).replace(/\n\s*/g, ""));
 			//start
 			processor.start();
 			//wait 3s
@@ -115,10 +133,22 @@
 		var myModules = [];
 		var targetSampleRate = 16000;	//this is the sample-rate we want
 		var bufferSize = 512;			//size of samples generated
+		var firstResamplerCallback = true;
 
 		function resamplerCallback(data){
 			//data will include e.g.: data.samples and data.rms (volume)
 			console.log("resamplerCallback", data);
+			if (data.moduleState == 1){
+				let ms = data.moduleInfo;
+				console.log("resampler setup info:", data.moduleInfo);
+				addInfo("Resampler module info - channels: " + ms.channelCount 
+					+ ", sourceSamplerate: " + ms.sourceSamplerate + ", targetSampleRate: " + ms.targetSampleRate 
+					+ ", resamplingMode: " + ms.resamplingMode);
+			}else if (data.samples && firstResamplerCallback){
+				//first callback with sample data
+				firstResamplerCallback = false;
+				addInfo("Resampler module data - channels: " + data.channels + ", sample-rate (after resampler): " + data.sampleRate);
+			}
 		}
 		var resampler = {
 			name: 'speex-resample-switch',
@@ -131,7 +161,7 @@
 						bufferSize: bufferSize,
 						resampleQuality: 5,			//1 (low quality) - 10 (best quality)
 						calculateRmsVolume: true,	//the resampler can calculate RMS signal volume
-						gain: 5.0,					//we can amplify the signal here
+						gain: 1.3,					//we can amplify the signal here
 						passThroughMode: 0			//0: none - only switch in our pipe atm
 					}
 				}
@@ -208,8 +238,16 @@
 			
 		}, function(info){
 			//Processor ready
-			console.log(info); //Use 'info' to get details about source, sample-rate etc.
+			console.log("Processor info:", info); //Use 'info' to get details about source, sample-rate etc.
 			addInfo("READY");
+			var si = info.sourceInfo;
+			addInfo("Source info - label: " + si.label);
+			addInfo("Source info - sample-rate: " + si.settings.sampleRate + " - channels: " + si.settings.channelCount);
+			let {noiseSuppression, echoCancellation, autoGainControl, voiceIsolation} = si.settings;
+			addInfo("Source info - constraints: " + JSON.stringify(
+				{noiseSuppression, echoCancellation, autoGainControl, voiceIsolation}).replace(/\n\s*/g, ""));
+			addInfo("Processor target sample-rate (before resampler): " + info.targetSampleRate 
+				+ " - try native resampling: " + SepiaFW.webAudio.tryNativeStreamResampling);
 			//start
 			processor.start();
 			//wait 4s
@@ -223,6 +261,198 @@
 			console.error(err);
 			addInfo("INIT. ERROR - Check console");
 		});
+	}
+	
+	//Tutorial Part 3 
+	function tutorialPart3(){
+		setInfo("Tutorial 3");
+		
+		SepiaFW.webAudio.tryNativeStreamResampling = true;		//global option
+
+		//Modules
+		var myModules = [];
+		var targetSampleRate = 22050;	//this is the sample-rate we want
+		var bufferSize = 512;			//size of samples generated
+		var firstResamplerCallback = true;
+
+		function resamplerCallback(data){
+			//data will include e.g.: data.samples and data.rms (volume)
+			//console.log("resamplerCallback - rms:", data?.rms);
+			if (data.moduleState == 1){
+				let ms = data.moduleInfo;
+				console.log("resampler setup info:", data.moduleInfo);
+				addInfo("Resampler module info - channels: " + ms.channelCount 
+					+ ", sourceSamplerate: " + ms.sourceSamplerate + ", targetSampleRate: " + ms.targetSampleRate 
+					+ ", resamplingMode: " + ms.resamplingMode);
+			}else if (data.samples && firstResamplerCallback){
+				//first callback with sample data
+				firstResamplerCallback = false;
+				addInfo("Resampler module data - channels: " + data.channels + ", sample-rate (after resampler): " + data.sampleRate);
+			}
+		}
+		var resampler = {
+			name: 'speex-resample-switch',
+			settings: {
+				onmessage: resamplerCallback,
+				sendToModules: [],	//[moduleIndex] - filled below with index of wave-encoder module
+				options: {
+					processorOptions: {
+						targetSampleRate: targetSampleRate,
+						bufferSize: bufferSize,
+						resampleQuality: 5,			//1 (low quality) - 10 (best quality)
+						calculateRmsVolume: true,	//the resampler can calculate RMS signal volume
+						gain: 1.3,					//we can amplify the signal here
+						passThroughMode: 0			//0: none - the next node receives data via messages
+					}
+				}
+			}
+		};
+		
+		function bufferOutputSwitchEvents(data){
+			//data will include e.g.: data.bufferHealth and pre-buffer events
+			console.log("bufferOutputSwitchCallback:", data);
+			if (data.bufferHealth){
+				const h = data.bufferHealth;
+				if (h.status !== 'ok'){
+					console.warn('[BufferOutput] Health:', h.status, '| avg:', h.avgFill,
+					'min:', h.minFill, 'max:', h.maxFill, '| underruns:', h.underruns,
+					'overruns:', h.overruns);
+				}else{
+					console.log('[BufferOutput] OK | avg fill:', h.avgFill,
+					'/ target:', h.targetMin + '-' + h.targetMax);
+				}
+			}
+		}
+		//the 'buffer-output-switch' will push samples to the processor.destinationNode
+		var bufferToStream = {
+			name: 'buffer-output-switch',
+			settings: {
+				onmessage: (data) => {
+					bufferOutputSwitchEvents(data);
+				},
+				options: {
+					processorOptions: {
+						bufferSize: bufferSize,
+						channelCount: 1,
+						healthReportInterval: 200,  //report every N process steps
+						//prebufferThreshold: 256
+					}
+				}
+			}
+		};
+		
+		myModules.push(resampler);		//index 1
+		myModules.push(bufferToStream);	//index 2
+
+		//connect resampler output to buffer switch:
+		resampler.settings.sendToModules.push(2);
+		
+		//web audio recorder controls
+		var recorderControl = null;		//will be assigned after processor but is used in events
+		
+		//Create processor
+		var processor = new SepiaFW.webAudio.Processor({
+			onaudiostart: function(){ 
+				console.log("onaudiostart", arguments);
+				addInfo("STARTED");
+			},
+			onaudioend: function(){ 
+				console.log("onaudioend", arguments);
+				addInfo("END");
+			},
+			onrelease: function(){
+				console.log("onrelease", arguments);
+				addInfo("RELEASED");
+			},
+			onerror: function(){
+				console.error("onerror", arguments);
+				addInfo("RUNTIME ERROR - Check console");
+				recorderControl?.stop();
+				processor.stop();
+			},
+			modules: myModules,
+			targetSampleRate: targetSampleRate
+			
+		}, function(info){
+			//Processor ready
+			console.log("Processor info:", info); //Use 'info' to get details about source, sample-rate etc.
+			addInfo("READY");
+			var si = info.sourceInfo;
+			addInfo("Source info - label: " + si.label);
+			addInfo("Source info - sample-rate: " + si.settings.sampleRate + " - channels: " + si.settings.channelCount);
+			let {noiseSuppression, echoCancellation, autoGainControl, voiceIsolation} = si.settings;
+			addInfo("Source info - constraints: " + JSON.stringify(
+				{noiseSuppression, echoCancellation, autoGainControl, voiceIsolation}).replace(/\n\s*/g, ""));
+			addInfo("Processor - target sample-rate (before resampler): " + info.targetSampleRate 
+				+ " - try native resampling: " + SepiaFW.webAudio.tryNativeStreamResampling);
+			
+			//get destination stream filled by buffer-output-switch
+			const stream = processor.destinationNode.stream;
+			const recLimit = 6000;
+			const recChunks = [];
+			
+			//Create recorder
+			SepiaFW.webAudio.createAudioRecorder(stream, processor.sourceInfo, {
+				showDebugInfo: true,
+				recordLimitMs: recLimit,
+				onstart: function(){
+					addInfo('Recorder - started (limit: ' + Math.round(recLimit / 1000) + 's)');
+				},
+				onstop: function(){
+					addInfo('Recorder - stopped');
+					processor?.release();
+					playTestRecording(recChunks);
+				},
+				ondataavailable: function(e){
+					//collect data for audio player
+					if (e.data.size > 0) recChunks.push(e.data);
+				},
+				onerror: function(err){
+					console.error("Recorder runtime error:", err);
+					addInfo('Recorder - runtime error: ' + (err?.message || err?.name || 'see console'));
+					processor?.release();
+				}
+			}).then((recControl) => {
+				//assign controls
+				recorderControl = recControl;
+				//start processor
+				processor.start();
+				//start recorder
+				recorderControl.start();
+				//wait 6s
+				setTimeout(function(){
+					//stop recorder
+					recorderControl.stop();
+				}, recLimit);
+			}).catch((err) => {
+				console.error('Recorder init. error:', err);
+				addInfo('Recorder - init. error: ' + (err?.message || err?.name || 'see console'));
+				processor.release();
+			});
+		}, function(err){
+			//Initialization error
+			console.error(err);
+			addInfo("INIT. ERROR - Check console");
+		});
+	}
+	function playTestRecording(chunks) {
+		if (!chunks.length) return;
+		const playerContainer = document.getElementById('recorder-out');
+		playerContainer.style.display = "block";
+		const player = playerContainer.querySelector("audio");
+		if (player._objectUrl){
+			//clean up
+			console.log("cleaning up old recording...");
+			URL.revokeObjectURL(player._objectUrl);
+			player._objectUrl = null;
+		}
+		//create blob from chunks
+		const blob = new Blob(chunks, {type: 'audio/webm'});
+		const url = URL.createObjectURL(blob);
+		player._objectUrl = url;	//store ref for revocation
+		player.src = url;
+		//player.setSinkId(sinkId).catch(...);
+		addInfo("Player for recorded audio is ready - Press play to listen.");
 	}
 </script>
 </body>
