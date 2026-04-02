@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>SEPIA Web Audio Tiny Recorder</title>
+
+	<script type="text/javascript" src="dist/sepia-web-audio.min.js?v=0.9.11"></script>
+	<script type="text/javascript" src="dist/sepia-recorder.min.js?v=0.9.7"></script>
+	<script>
+		//set correct modules folder
+		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		else alert("SEPIA Web Audio Library not found or not supported (IE11?)!");
+	</script>
+	
+	<link rel="stylesheet" type="text/css" href="test-pages/recorder.css?v=0.9.7">
+	<style>
+	</style>
+</head>
+<body>
+<div class="page">
+	<h1>SEPIA Tiny Recorder Demo</h1>
+	<p>This page uses the 'SepiaVoiceRecorder' plugin of the <a href="https://github.com/SEPIA-Framework/sepia-web-audio" target=_blank>SEPIA Web-Audio Library</a>
+	to record a WAV file in 48 kHz with default settings and max. length 30s. That's it ;-).</p>
+	<h2>Recorder</h2>
+	<div class="section">
+		<div class="group"><label>Start/Stop:</label><button id="micButton" onclick="toggleMic();"></button></div>
+		<div class="group"><label>Gain:</label><input id="microphoneGain" class="small" type="number" value="1.0" min="0.1" max="100" step="0.1"></div>
+		<div class="group"><label>Resources:</label><button onclick="releaseMic();">Release</button></div>
+	</div>
+	<div class="section">
+		<div class="group"><label>Vol. Meter (green = good):</label><div id="volumeMeter"><div id="volumeBar"></div></div></div>
+	</div>
+	<h2>Log <button class="variant-2" onclick="clearMessages()" style="margin: 0 0 0 16px;">CLEAR</button></h2>
+	<div>
+		<ul id='messages'>
+			<li>Log:</li>
+		</ul>
+	</div>
+</div>
+<script type='text/javascript' src="test-pages/test-commons.js"></script>
+<script type='text/javascript'>
+
+	//--- Recorder ---
+	
+	var isLoading = false;
+	var isRecording = false;
+	
+	SepiaFW.webAudio.tryNativeStreamResampling = false;		//try native resampling?
+	
+	function toggleMic(){
+		if (!isLoading && !isRecording){
+			isLoading = true;
+			setMicState("loading");
+			//for this demo we create a new recorder each time
+			SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
+				//build options
+				SepiaVoiceRecorder.create({
+					targetSampleRate: 48000,	//16kHz is voice recorder default, 48kHz is usually device native
+					gain: +gainNode.value,
+					recordingLimitMs: 30000,	//Total recording limit ms (use to limit WAV size for example)
+				});
+			});
+			
+		}else if (isRecording){
+			SepiaVoiceRecorder.stop();
+		
+		}else if (isLoading){
+			setMicState("loading");
+			SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
+				isLoading = false;
+				isRecording = false;
+				setMicState("idle");
+			});
+		}
+	}
+	function releaseMic(){
+		SepiaVoiceRecorder.stopAndReleaseIfActive(function(){
+			addMessage("RELEASED Microphone");
+		});
+	}
+	function onMicError(){
+		setMicState("error");
+		isRecording = false;
+		isLoading = false;
+	}
+	
+	SepiaVoiceRecorder.onProcessorReady = function(info){
+		console.log("SepiaVoiceRecorder -  onProcessorReady", info);
+		setMicState("idle");
+		isLoading = false;
+		isRecording = false;
+		//start when ready:
+		SepiaVoiceRecorder.start();
+	}
+	SepiaVoiceRecorder.onProcessorInitError = function(err){
+		console.error("SepiaVoiceRecorder -  onProcessorInitError", err);
+		onMicError();
+		addMessage("ERROR - onProcessorInitError: " + err.message);
+		if (location.protocol == "http:" && !location.origin.indexOf("http://localhost") == 0){
+			addMessage("ERROR - Likely because of insecure origin (no HTTPS or localhost)");
+		}
+	}
+	SepiaVoiceRecorder.onProcessorError = function(err){
+		console.error("SepiaVoiceRecorder -  onProcessorError", err);
+		onMicError();
+		addMessage("ERROR - onProcessorError: " + err.name);
+	}
+	SepiaVoiceRecorder.onDebugLog = function(msg){}
+
+	SepiaVoiceRecorder.onAudioStart = function(info){
+		isRecording = true;
+		setMicState("recording");
+		addMessage("Microphone is OPEN");
+	}
+	SepiaVoiceRecorder.onAudioEnd = function(info){
+		isRecording = false;
+		setVolume(0);
+		setMicState("idle");
+		addMessage("Microphone is CLOSED");
+	}
+
+	SepiaVoiceRecorder.onProcessorRelease = function(info){
+		setMicState("idle");
+		isRecording = false;
+		isLoading = false;
+	}
+	
+	//Resampler events
+	SepiaVoiceRecorder.onResamplerData = function(data){
+		if (data.rms != undefined){
+			setVolume(data.rms);
+		}
+	}
+		
+	//Wave encoder events
+	SepiaVoiceRecorder.onWaveEncoderAudioData = function(waveData){
+		var targetEle = addMessage("WAV Result:");
+		SepiaVoiceRecorder.addAudioElementToPage(targetEle, waveData, "audio/wav");
+		addMessage(undefined);
+	}
+	
+	//--- Messages and animations ---
+	
+	var gainNode = document.getElementById("microphoneGain");
+	gainNode.addEventListener("change", function(e){
+		if (SepiaVoiceRecorder.isActive()){
+			showInfoModal("NOTE: Gain cannot be changed while recorder is active. Changes will be applied at next 'start'.");
+		}
+	});
+	
+	var micButton = document.getElementById("micButton");
+	function setMicState(state){
+		micButton.classList.remove("recording", "loading");
+		if (state == "loading"){
+			micButton.classList.add("loading");
+		}else if (state == "recording"){
+			micButton.classList.add("recording");
+		}else{
+			//idle
+		}
+	}
+	
+	var volumeThresholds = [0.05, 10];		//too low/too high
+	var volumeBar = document.getElementById("volumeBar");
+	var volBarPassedCheck = false;
+	var maxVol = 0.02;
+	function setVolume(val){
+		if (!volBarPassedCheck){
+			if (val < volumeThresholds[0] || val > volumeThresholds[1]){
+				volumeBar.style.background = "#f04";	//bad
+			}else{
+				volumeBar.style.background = "#0f4";	//good
+				volBarPassedCheck = true;
+				setTimeout(function(){ volBarPassedCheck = false; }, 2000);
+			}
+		}
+		if (val > maxVol) maxVol = val;
+		volumeBar.style.width = Math.round(val/maxVol * 100) + "%";
+	}
+
+	var messages = document.getElementById('messages');
+	function addMessage(msg){
+		var message;
+		message = document.createElement('li');
+		message.textContent = new Date().toLocaleTimeString() + " - " + msg;
+		if (msg){
+			messages.appendChild(message);
+		}
+		messages.scrollTop = messages.scrollHeight;
+		return message;
+	}
+	function clearMessages(){
+		messages.innerHTML = "<li>Log:</li>";
+	}
+	var maxLogHeight = Math.ceil(window.innerHeight - messages.getBoundingClientRect().top - 58);
+	if (maxLogHeight > 150){
+		messages.style.height = maxLogHeight + "px";
+	}else{
+		messages.style.height = "150px";
+	}
+	function showInfoModal(msg){
+		var modalContent = document.createElement("div");
+		modalContent.textContent = msg;
+		var mod = createModal(modalContent, "480px", "85%");
+	}
+	
+	// ON READY
+			
+	setVolume(0);
+	setMicState("idle");
+</script>
+</body>
+</html>
