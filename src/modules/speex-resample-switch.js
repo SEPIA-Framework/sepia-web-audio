@@ -53,7 +53,7 @@ class SpeexResampleProcessor extends AudioWorkletProcessor {
 
 		this.sourceSamplerate = options.processorOptions.ctxInfo.sampleRate;	//INFO: should be same as global scope 'sampleRate'
 
-		this.targetSampleRate = options.processorOptions.targetSampleRate || options.processorOptions.ctxInfo.targetSampleRate || 16000;
+		this.targetSampleRate = options.processorOptions.targetSampleRate || options.processorOptions.ctxInfo.targetSampleRate || this.sourceSamplerate || 16000;
 		this.resampleQuality = (options.processorOptions.resampleQuality != undefined)? options.processorOptions.resampleQuality : 7;	//number from 1 to 10, 1 is fast but of bad quality, 10 is slow but best quality (less noise/aliasing, a higher complexity and a higher latency)
 		this.emitterBufferSize = options.processorOptions.bufferSize || 512;	//TODO: there is probably a mismatch (we should pull go back to the idea of making the buffer bigger but pull less)
 		this.channelCount = 1; //options.processorOptions.channels || 1;		//TODO: supports ONLY MONO atm
