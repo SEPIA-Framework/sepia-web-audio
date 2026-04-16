@@ -1,27 +1,39 @@
-// DIFFERENCE from original ring-buffer: no support for multiple types via
-// constructor parameter ('Uint16', 'Int16', 'Uint8', 'Int8', Float32 as default).
-// Float32 only here -- sufficient for audio output.
+// DIFFERENCES from original ring-buffer:
+// - No support for multiple types, uses only 'Float32' as default.
+// - Zero-padding will fill missing output with silence to prevent artifacts.
 class ZeroPaddingRingBuffer {
   constructor(length, channelCount) {
     this._readIndex       = 0;
     this._writeIndex      = 0;
     this._framesAvailable = 0;
-    this._channelCount    = channelCount;
     this._length          = length;
     this._channelData     = [];
     for (let i = 0; i < channelCount; i++) {
       this._channelData[i] = new Float32Array(length);
     }
   }
+
   get framesAvailable() { return this._framesAvailable; }
   get length()          { return this._length; }
+  get channelCount()    { return this._channelData.length; }
 
   push(data) {
     const frames = data[0].length;
-    for (let f = 0; f < frames; f++) {
-      const idx = (this._writeIndex + f) % this._length;
-      for (let c = 0; c < this._channelCount; c++) {
-        this._channelData[c][idx] = data[c][f];
+
+    //overrun: move read-index
+    const overflow = Math.max(0, (this._framesAvailable + frames) - this._length);
+    if (overflow > 0) {
+      this._readIndex = (this._readIndex + overflow) % this._length;
+      this._framesAvailable -= overflow;
+    }
+    
+    //split parts for faster assign
+    const part1 = Math.min(frames, this._length - this._writeIndex);
+    const part2 = frames - part1;
+    for (let c = 0; c < this._channelData.length; c++) {
+      this._channelData[c].set(data[c].subarray(0, part1), this._writeIndex);
+      if (part2 > 0) {
+        this._channelData[c].set(data[c].subarray(part1), 0);
       }
     }
     this._writeIndex = (this._writeIndex + frames) % this._length;
@@ -29,25 +41,31 @@ class ZeroPaddingRingBuffer {
   }
 
   pull(output, frames) {
-    // DIFFERENCE 1: remaining output is filled with silence on underrun.
+    // NOTE: remaining output is filled with silence on underrun.
     // This prevents stale samples from lingering in the WebAudio output.
-    //
-    // DIFFERENCE 2: original returns nothing.
-    // Here the number of actually read frames is returned so the caller
-    // can detect and count underruns.
     const available = Math.min(frames, this._framesAvailable);
-    for (let f = 0; f < available; f++) {
-      const idx = (this._readIndex + f) % this._length;
-      for (let c = 0; c < this._channelCount; c++) {
-        output[c][f] = this._channelData[c][idx];
+    //split parts for faster assign
+    const part1 = Math.min(available, this._length - this._readIndex);
+    const part2 = available - part1;
+    for (let c = 0; c < this._channelData.length; c++) {
+      output[c].set(this._channelData[c].subarray(this._readIndex, this._readIndex + part1), 0);
+      if (part2 > 0) {
+        output[c].set(this._channelData[c].subarray(0, part2), part1);
       }
+	  // Fill missing frames with silence (underrun)
+      output[c].fill(0, available, frames);
     }
-    // Fill missing frames with silence (underrun)
-	for (let c = 0; c < this._channelCount; c++) {
-		output[c].fill(0, available, frames); 
-	}
     this._readIndex = (this._readIndex + available) % this._length;
     this._framesAvailable -= available;
     return available; // actually read frames
+  }
+
+  clear() {
+    this._readIndex       = 0;
+    this._writeIndex      = 0;
+    this._framesAvailable = 0;
+    for (let i = 0; i < this._channelData.length; i++) {
+      this._channelData[i].fill(0);
+    }
   }
 }
