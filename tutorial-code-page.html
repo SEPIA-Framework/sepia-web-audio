@@ -22,7 +22,7 @@
 	<div>
 		<button onclick="tutorialPart1();">Tutorial Part 1 - Buffer Processing (3s)</button>
 		<button onclick="tutorialPart2();">Tutorial Part 2 - Resample and WAV encode (4s)</button>
-		<button onclick="tutorialPart3();">Tutorial Part 3 - Resample and record (6s)</button>
+		<button onclick="tutorialPart3();">Tutorial Part 3 - Record a buffer as stream (6s)</button>
 		<button onclick="window.location.reload();">Reload page</button>
 	</div>
 	<textarea id="info" style="width: 100%; min-height: 175px;"></textarea>
@@ -267,42 +267,32 @@
 	function tutorialPart3(){
 		setInfo("Tutorial 3");
 		
-		SepiaFW.webAudio.tryNativeStreamResampling = true;		//global option
+		SepiaFW.webAudio.tryNativeStreamResampling = true;	//NOTE: native is REQUIRED for this part!
 
 		//Modules
 		var myModules = [];
 		var targetSampleRate = 22050;	//this is the sample-rate we want
-		var bufferSize = 512;			//size of samples generated
-		var firstResamplerCallback = true;
+		var bufferSize = 1024;			//size of samples generated
+		var firstModuleCallback = true;
 
-		function resamplerCallback(data){
-			//data will include e.g.: data.samples and data.rms (volume)
-			//console.log("resamplerCallback - rms:", data?.rms);
-			if (data.moduleState == 1){
-				let ms = data.moduleInfo;
-				console.log("resampler setup info:", data.moduleInfo);
-				addInfo("Resampler module info - channels: " + ms.channelCount 
-					+ ", sourceSamplerate: " + ms.sourceSamplerate + ", targetSampleRate: " + ms.targetSampleRate 
-					+ ", resamplingMode: " + ms.resamplingMode);
-			}else if (data.samples && firstResamplerCallback){
+		//NOTE: The buffer module is just an example for any processor that sends samples via the messages interface
+		function bufferCallback(data){
+			//handle samples here using: data.samples
+			if (data.samples && firstModuleCallback){
 				//first callback with sample data
-				firstResamplerCallback = false;
-				addInfo("Resampler module data - channels: " + data.channels + ", sample-rate (after resampler): " + data.sampleRate);
+				firstModuleCallback = false;
+				addInfo("Module info - channels: " + data.channels + ", sample-rate: " + data.sampleRate);
 			}
 		}
-		var resampler = {
-			name: 'speex-resample-switch',
+		var streamToBuffer = {
+			name: 'buffer-switch',
 			settings: {
-				onmessage: resamplerCallback,
 				sendToModules: [],	//[moduleIndex] - filled below with index of wave-encoder module
+				onmessage: bufferCallback,
 				options: {
 					processorOptions: {
-						targetSampleRate: targetSampleRate,
-						bufferSize: bufferSize,
-						resampleQuality: 5,			//1 (low quality) - 10 (best quality)
-						calculateRmsVolume: true,	//the resampler can calculate RMS signal volume
-						gain: 1.3,					//we can amplify the signal here
-						passThroughMode: 0			//0: none - the next node receives data via messages
+						bufferSize: bufferSize, //size of samples generated
+						passThroughMode: 0		//0: none, 1: original (float32 array)
 					}
 				}
 			}
@@ -318,8 +308,7 @@
 					'min:', h.minFill, 'max:', h.maxFill, '| underruns:', h.underruns,
 					'overruns:', h.overruns);
 				}else{
-					console.log('[BufferOutput] OK | avg fill:', h.avgFill,
-					'/ target:', h.targetMin + '-' + h.targetMax);
+					console.log('[BufferOutput] OK | avg fill:', h.avgFill);
 				}
 			}
 		}
@@ -332,7 +321,7 @@
 				},
 				options: {
 					processorOptions: {
-						bufferSize: bufferSize,
+						inputBufferSize: bufferSize,
 						channelCount: 1,
 						healthReportInterval: 200,  //report every N process steps
 						//prebufferThreshold: 256
@@ -341,11 +330,11 @@
 			}
 		};
 		
-		myModules.push(resampler);		//index 1
+		myModules.push(streamToBuffer);	//index 1
 		myModules.push(bufferToStream);	//index 2
 
-		//connect resampler output to buffer switch:
-		resampler.settings.sendToModules.push(2);
+		//connect buffer input to output:
+		streamToBuffer.settings.sendToModules.push(2);
 		
 		//web audio recorder controls
 		var recorderControl = null;		//will be assigned after processor but is used in events
@@ -383,8 +372,15 @@
 			let {noiseSuppression, echoCancellation, autoGainControl, voiceIsolation} = si.settings;
 			addInfo("Source info - constraints: " + JSON.stringify(
 				{noiseSuppression, echoCancellation, autoGainControl, voiceIsolation}).replace(/\n\s*/g, ""));
-			addInfo("Processor - target sample-rate (before resampler): " + info.targetSampleRate 
-				+ " - try native resampling: " + SepiaFW.webAudio.tryNativeStreamResampling);
+			addInfo("Processor - target sample-rate: " + info.targetSampleRate 
+				+ " - try native resampling: " + SepiaFW.webAudio.tryNativeStreamResampling + " (important!)");
+			if (si.settings.sampleRate != info.targetSampleRate){
+				//TODO: explain this in more detail
+				var errMsg = "Resampler module ERROR - Sample-Rate mismatch! To make this part of the tutorial work the browser needs to resample the data natively!";
+				console.error(errMsg);
+				addInfo(errMsg);
+				throw new Error(errMsg);
+			}
 			
 			//get destination stream filled by buffer-output-switch
 			const stream = processor.destinationNode.stream;
