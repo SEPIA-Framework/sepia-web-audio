@@ -277,9 +277,9 @@ function waveEncoderCallback(data){
 }
 ```
 
-### Part 3: Resample input, convert it back to audio stream and use web audio recorder
+### Part 3: Process input, convert it back to audio stream and use web audio recorder
 
-Please see [tutorial-code-page.html](tutorial-code-page.html#L267) part 3 to learn how to use the resampler in combination with the 'buffer-output-switch' module to convert modified audio back to a destination node stream.
+Please see [tutorial-code-page.html](tutorial-code-page.html#L267) part 3 to learn more about the 'buffer-output-switch' module that can convert a buffer (from message API) back to a destination node stream.
   
 ... TO BE CONTINUED  
 
