@@ -19,12 +19,27 @@ function vibrate(pattern){
 function addWaveToPage(wavAudio){
 	var targetElement = document.getElementById("mainView") || document.body;
 	var audioType = "audio/wav";
-	SepiaFW.webAudio.addAudioElementToPage(targetElement, wavAudio, audioType);
+	var audioEle = SepiaFW.webAudio.addAudioElementToPage(targetElement, wavAudio, audioType);
+	audioEle.parentNode.classList.add("page-output");
 }
 
 var fixedPlots = {};
 if (window.uPlot && uPlot.lazy){
 	uPlot.lazy.colorPalette[0] = "#ceff1a";		//default color for first line in graph
+}
+//Also used to start over: the graphs have no way to forget their data and
+//their remembered maximum, so they are replaced. 'use' is kept.
+function createFixedPlots(){
+	if (!window.uPlot || !uPlot.lazy) return;
+	Object.keys(fixedPlots).forEach(function(i){
+		var plot = fixedPlots[i].graph.getPlot();
+		if (plot) plot.destroy();		//also drops its window listeners
+	});
+	[1, 2, 3, 4].forEach(function(i){
+		var container = document.getElementById("chart" + i);
+		if (container) container.innerHTML = "";
+	});
+	var oldPlots = fixedPlots;
 	fixedPlots = {
 		1: {
 			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart1'), 150, {
@@ -58,7 +73,11 @@ if (window.uPlot && uPlot.lazy){
 			use: (document.getElementById("usePlot4")? document.getElementById("usePlot4").checked : true)
 		},
 	}
+	Object.keys(oldPlots).forEach(function(i){
+		if (fixedPlots[i]) fixedPlots[i].use = oldPlots[i].use;
+	});
 }
+createFixedPlots();
 function usePlot(index, ele){
 	if (!ele) return;
 	var p = fixedPlots[index];
@@ -79,18 +98,25 @@ function useHeatmap(index, ele){
 }
 var useHeatmaps = {};
 var heatmaps = {};
-if (window.uPlot && uPlot.lazy && uPlot.lazy.Heatmap){
-	if (document.getElementById('heatmap1')){
-		heatmaps = {
-			1: new uPlot.lazy.Heatmap(document.getElementById('heatmap1'), {
-				dataPixelWidth: 4,
-				dataPixelHeight: 4,
-				colorIndex: 4,
-				maxDataPoints: 150
-			})
-		};
-	}
+//Also used to start over (see 'createFixedPlots').
+function createFixedHeatmaps(){
+	if (!window.uPlot || !uPlot.lazy || !uPlot.lazy.Heatmap) return;
+	var container = document.getElementById('heatmap1');
+	if (!container) return;
+	//the canvas takes the container's size, so it must not be hidden here
+	var display = container.style.display;
+	container.style.display = "";
+	heatmaps = {
+		1: new uPlot.lazy.Heatmap(container, {
+			dataPixelWidth: 4,
+			dataPixelHeight: 4,
+			colorIndex: 4,
+			maxDataPoints: 150
+		})
+	};
+	container.style.display = display;
 }
+createFixedHeatmaps();
 usePlot(1, document.getElementById('usePlot1'));
 usePlot(2, document.getElementById('usePlot2'));
 usePlot(3, document.getElementById('usePlot3'));
@@ -99,15 +125,28 @@ useHeatmap(1, document.getElementById('useHeatmap1'));
 
 function addTitleToPage(titleText){
 	var ele = document.createElement("p");
+	ele.className = "page-output";
 	ele.textContent = titleText;
 	(document.getElementById("mainView") || document.body).appendChild(ele);
 	return ele;
 }
 function addChartContainerToPage(myParentEle){
 	var ele = document.createElement("div");
-	ele.className = "chart";
+	ele.className = "chart page-output";
 	(myParentEle ||document.getElementById("mainView") || document.body).appendChild(ele);
 	return ele;
+}
+//Removes what the helpers above appended (titles, charts, WAV players) and
+//starts the fixed graphs over.
+function clearAllPlots(){
+	document.querySelectorAll(".page-output").forEach(function(ele){
+		ele.querySelectorAll("audio").forEach(function(audioEle){
+			if (audioEle.src.indexOf("blob:") == 0) URL.revokeObjectURL(audioEle.src);
+		});
+		ele.parentNode.removeChild(ele);
+	});
+	createFixedPlots();
+	createFixedHeatmaps();
 }
 function plotData(data, plotIndexOrParent, expandData){
 	var plotParentEle = undefined;
