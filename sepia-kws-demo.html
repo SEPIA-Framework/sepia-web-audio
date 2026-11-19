@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>SEPIA KWS Demo</title>
+
+	<script type="text/javascript" src="src/sepia-web-audio.js?v=0.9.12"></script>
+	<script>
+		//set correct modules folder
+		if (window.SepiaFW) SepiaFW.webAudio.defaultProcessorOptions.moduleFolder = "src/modules";
+		else alert("SEPIA Web Audio Library not found or not supported (IE11?)!");
+	</script>
+
+	<link rel="stylesheet" type="text/css" href="test-pages/recorder.css?v=0.9.7">
+	<style>
+		.section + h2 { margin-top: 24px; }
+		.group > label { margin-right: 6px; }
+		.group + .group { margin-left: 16px; }
+		#kwsKeywords label { margin: 0 4px 0 8px; }
+		.note { font-size: 13px; color: #555; margin: 8px 0; }
+		.note.warning { color: #a33; }
+		#kwsState { font-weight: bold; }
+		#kwsState.listening { color: #1a8a1a; }
+		#kwsDetection {
+			margin: 12px 0;
+			padding: 12px;
+			text-align: center;
+			font-size: 20px;
+			border: 1px solid #aaa;
+			background: #eee;
+			transition: background 0.6s;
+		}
+		#kwsDetection.hit { background: #ceff1a; transition: none; }
+		#kwsInfo {
+			background: #f6f6f6;
+			border: 1px solid #ddd;
+			padding: 8px;
+			font-size: 12px;
+			white-space: pre-wrap;
+			overflow: auto;
+		}
+	</style>
+</head>
+<body>
+<div class="page">
+	<h1>SEPIA KWS Demo</h1>
+	<p>Runs the SEPIA keyword spotter (<code>sepia-keyword-worker</code>) in a SEPIA Web Audio
+	pipeline: microphone → switch → keyword worker. Settings apply on <b>Create</b>, except the
+	sensitivity, which also changes while listening.</p>
+
+	<h2>Pipeline</h2>
+	<div class="section">
+		<div class="group"><label>Chain:</label><select id="kwsChain" onchange="showChainNote();">
+			<option value="A" selected>A: Speex switch passes 48 kHz as Int16, KWS converts</option>
+			<option value="B">B: Speex switch converts to 16 kHz Int16</option>
+			<option value="C">C: browser converts to 16 kHz, Speex switch passes Int16 (not recommended)</option>
+		</select></div>
+	</div>
+	<p id="kwsChainNote" class="note"></p>
+	<div class="section">
+		<div class="group" id="kwsResampleQualityGroup"><label>Speex quality:</label><input id="kwsResampleQuality" class="small" type="number" value="7" min="0" max="10" step="1"></div>
+		<div class="group"><label>Buffer size:</label><input id="kwsBufferSize" class="small" type="number" value="512" min="128" step="128"></div>
+	</div>
+	<p class="note">Browser audio processing on the microphone. All off by default: the KWS
+	thresholds were calibrated on unprocessed audio. What the browser actually applied is shown
+	under "Module info" after <b>Create</b>.</p>
+	<div class="section" id="kwsMicProcessing">
+		<div class="group"><label>Noise suppression:</label><input id="mic_noiseSuppression" type="checkbox"></div>
+		<div class="group"><label>Echo cancellation:</label><input id="mic_echoCancellation" type="checkbox"></div>
+		<div class="group"><label>Auto gain:</label><input id="mic_autoGainControl" type="checkbox"></div>
+		<div class="group"><label>Voice isolation:</label><input id="mic_voiceIsolation" type="checkbox"></div>
+	</div>
+
+	<h2>Keywords</h2>
+	<div class="section">
+		<div class="group" id="kwsKeywords">loading ...</div>
+		<div class="group"><label>Sensitivity:</label><select id="kwsSensitivity" onchange="setSensitivity(+this.value);">
+			<option value="1">1 - very strict</option>
+			<option value="2">2 - strict</option>
+			<option value="3">3 - focused</option>
+			<option value="4" selected>4 - regular (calibrated)</option>
+			<option value="5">5 - loose</option>
+		</select></div>
+	</div>
+
+	<h2>Control</h2>
+	<p class="note">Create pipeline → Listen/Stop → Release when done</p>
+	<div class="section">
+		<div class="group">
+			<button onclick="createProcessor();">Create</button>
+			<button onclick="startListening();">Listen</button>
+			<button onclick="stopListening();">Stop</button>
+			<button onclick="releaseProcessor();">Release</button>
+		</div>
+		<div class="group"><label>State:</label><span id="kwsState">-</span></div>
+	</div>
+	<div id="kwsDetection">no detection yet</div>
+
+	<h2>Module info</h2>
+	<div id="kwsInfo">-</div>
+
+	<h2>Log <button class="variant-2" onclick="clearMessages();" style="margin: 0 0 0 16px;">CLEAR</button></h2>
+	<div>
+		<ul id="messages">
+			<li>Log:</li>
+		</ul>
+	</div>
+</div>
+<script type="text/javascript">
+
+	var MODEL = "wdtcn-v4-s0-uno";
+	var KWS_FOLDER = "src/modules/sepia-kws/";
+
+	//The rate each chain hands to the worker, and whether the AudioContext is
+	//asked for that rate (the library's "native resampling"). A and B run the
+	//context at the device rate, as the client does.
+	//Only B resamples with speexdsp by design, so only B shows the quality
+	//field. A uses DEFAULT_RESAMPLE_QUALITY on a 44.1 kHz device.
+	var CHAINS = {
+		A: {rate: 48000, nativeResampling: false, speexResampling: false},
+		B: {rate: 16000, nativeResampling: false, speexResampling: true},
+		C: {rate: 16000, nativeResampling: true, speexResampling: false}
+	};
+
+	//A minimal module that only validates with WASM SIMD, as in the KWS
+	//repository's app/listen.html. The worker (0.1.1+) runs the same probe
+	//and fetches the matching build itself when no wasmFile is given, as
+	//modules-demo.html does. This page still chooses, so that the info box
+	//can show the probe result next to the build it asked for.
+	var SIMD_PROBE = new Uint8Array([
+		0, 97, 115, 109, 1, 0, 0, 0,	// magic, version
+		1, 5, 1, 96, 0, 1, 123,			// type section: () -> v128
+		3, 2, 1, 0,						// function section: one, of that type
+		10, 8, 1, 6, 0,					// code section: one body, 6 bytes, 0 locals
+		65, 0,							//   i32.const 0
+		253, 15,						//   i8x16.splat   <- the SIMD opcode
+		11								//   end
+	]);
+	var hasWasmSimd = false;
+	try { hasWasmSimd = WebAssembly.validate(SIMD_PROBE); }catch (err){}
+
+	var DEFAULT_RESAMPLE_QUALITY = 7;
+	var CHAIN_NOTES = {
+		A: "Default. The audio context runs at the device rate, usually 48 kHz. The Speex switch only "
+			+ "converts to Int16 and the KWS resamples with its own filter. On a 44.1 kHz device the "
+			+ "switch first raises the rate to 48 kHz with speexdsp, at quality " + DEFAULT_RESAMPLE_QUALITY + ".",
+		B: "The Speex switch converts to 16 kHz with speexdsp. Use quality 7 or higher: 5 measurably "
+			+ "raises scores under the threshold and adds detections.",
+		C: "Not recommended, for comparison only. The browser converts to 16 kHz when it creates the "
+			+ "audio context. The quality of that resampler is unknown and was not measured, and running "
+			+ "the whole capture at 16 kHz can hurt other processing too: echo cancellation, for example, "
+			+ "often causes problems at a native 16 kHz. If the browser does not give 16 kHz, the page "
+			+ "stops and says so."
+	};
+	var MIC_PROCESSING = ["noiseSuppression", "echoCancellation", "autoGainControl", "voiceIsolation"];
+
+	var rec;
+	var kwsWorker;
+	var isListening = false;
+	var availableKeywords = [];
+	var lastInfo = {};
+
+	var stateElement = document.getElementById("kwsState");
+	var detectionElement = document.getElementById("kwsDetection");
+	var infoElement = document.getElementById("kwsInfo");
+	var messagesElement = document.getElementById("messages");
+
+	//--- Log ---
+
+	function addMessage(msg, data){
+		var text = msg;
+		if (data !== undefined){
+			text += " - " + ((typeof data == "object")? JSON.stringify(data) : data);
+		}
+		var li = document.createElement("li");
+		li.textContent = (new Date().toLocaleTimeString()) + " - " + text;
+		messagesElement.appendChild(li);
+		messagesElement.scrollTop = messagesElement.scrollHeight;
+	}
+	function clearMessages(){
+		messagesElement.innerHTML = "<li>Log:</li>";
+	}
+	function setState(text, className){
+		stateElement.textContent = text;
+		stateElement.className = className || "";
+	}
+
+	//--- Keywords ---
+
+	function loadKeywords(){
+		fetch(KWS_FOLDER + MODEL + ".keywords.json").then(function(res){
+			if (!res.ok) throw new Error("HTTP " + res.status);
+			return res.json();
+		}).then(function(json){
+			availableKeywords = json.keywords || [];
+			var box = document.getElementById("kwsKeywords");
+			box.innerHTML = "";
+			availableKeywords.forEach(function(kw){
+				var label = document.createElement("label");
+				label.textContent = kw.name;
+				var cb = document.createElement("input");
+				cb.type = "checkbox";
+				cb.checked = true;
+				cb.value = kw.name;
+				box.appendChild(label);
+				box.appendChild(cb);
+			});
+		}).catch(function(err){
+			addMessage("ERROR - Failed to load keyword list", String(err));
+		});
+	}
+	function selectedKeywords(){
+		var selected = [];
+		document.querySelectorAll("#kwsKeywords input:checked").forEach(function(cb){
+			availableKeywords.forEach(function(kw){
+				if (kw.name == cb.value) selected.push(kw);
+			});
+		});
+		return selected;
+	}
+
+	//--- Worker messages ---
+
+	function onSwitchMessage(data){
+		//only the ready message is of interest: it says whether the switch
+		//resamples (resamplingMode -1/1) or passes the rate on (0)
+		if (data && data.moduleState == 1 && data.moduleInfo){
+			lastInfo.switchInfo = data.moduleInfo;
+			showInfo();
+		}
+	}
+
+	function onKwsMessage(data){
+		if (!data) return;
+		if (data.moduleState == 1 && data.moduleInfo){
+			lastInfo.module = data.moduleInfo;
+			showInfo();
+		}else if (data.keyword){
+			addMessage("DETECTION", {keyword: data.keyword, score: data.score, threshold: data.threshold, at_seconds: data.at_seconds});
+			detectionElement.textContent = data.keyword + " (score " + data.score + ", threshold " + data.threshold + ")";
+			detectionElement.className = "hit";
+			setTimeout(function(){ detectionElement.className = ""; }, 600);
+		}else if (data.moduleEvent && data.kwsExposure){
+			lastInfo.exposure = data.kwsExposure;
+			showInfo();
+		}else if (data.moduleEvent && data.kwsThresholds){
+			lastInfo.thresholds = data.kwsThresholds;
+			if (data.kwsThresholds.refused) addMessage("Sensitivity refused", data.kwsThresholds.refused);
+			else addMessage("Thresholds", {sensitivity: data.kwsThresholds.sensitivity, thresholds: data.kwsThresholds.thresholds});
+			showInfo();
+		}else if (data.moduleEvent && data.kwsEvent){
+			//A kept record without detection is a near miss: a window over the
+			//shadow threshold but under the keyword's own.
+			if (!data.kwsEvent.over_threshold){
+				addMessage("Near miss", {keyword: data.kwsEvent.keyword, score: data.kwsEvent.score});
+			}
+		}else if (data.moduleEvent && data.gate){
+			addMessage("Gate", data.gate.isOpen? "open" : "closed");
+		}
+	}
+
+	function showInfo(){
+		var lines = [];
+		var mi = lastInfo.module;
+		var si = lastInfo.switchInfo;
+		if (lastInfo.ctx){
+			lines.push("chain: " + lastInfo.ctx.chain
+				+ " | context rate: " + lastInfo.ctx.sampleRate
+				+ " | wasm: " + lastInfo.ctx.wasm + " (probe: SIMD " + (hasWasmSimd? "yes" : "no") + ")");
+		}
+		if (lastInfo.mic){
+			//what the track reports, not what was asked for: a browser can
+			//ignore a constraint, and "n/a" means it does not report the key
+			lines.push("mic processing: " + MIC_PROCESSING.map(function(key){
+				var applied = lastInfo.mic.applied[key];
+				return key + " " + (applied === undefined? "n/a" : applied)
+					+ (applied !== undefined && applied !== lastInfo.mic.requested[key]? " (asked: " + lastInfo.mic.requested[key] + ")" : "");
+			}).join(" | "));
+		}
+		if (si){
+			lines.push("speex switch: " + si.sourceSamplerate + " -> " + si.targetSampleRate
+				+ " | resamplingMode: " + si.resamplingMode + (si.resamplingMode == 0? " (passes through)" : " (speexdsp converts)"));
+		}
+		if (mi){
+			lines.push("captureSampleRate: " + mi.captureSampleRate
+				+ " | resampling: " + mi.resampling
+				+ " | inputIsFloat32: " + mi.inputIsFloat32
+				+ " | simd: " + mi.simd
+				+ " | streaming: " + mi.streaming);
+			lines.push("keywords: " + JSON.stringify(mi.keywords)
+				+ " | sensitivity: " + mi.sensitivity
+				+ " | thresholds: " + JSON.stringify(mi.thresholds));
+			lines.push("model: " + JSON.stringify(mi.model));
+			lines.push("version: " + JSON.stringify(mi.version));
+		}
+		if (lastInfo.thresholds){
+			lines.push("current sensitivity: " + lastInfo.thresholds.sensitivity
+				+ " | thresholds: " + JSON.stringify(lastInfo.thresholds.thresholds));
+		}
+		var ex = lastInfo.exposure;
+		if (ex){
+			var perWindow = ex.windows? (Math.round(ex.score_ms / ex.windows * 100) / 100) : null;
+			lines.push("exposure (" + ex.reason + "): windows " + ex.windows
+				+ " | listened " + ex.listened_seconds + " s"
+				+ " | ms/window avg " + perWindow + ", min " + ex.score_ms_min + ", max " + ex.score_ms_max
+				+ " | behind_windows " + ex.behind_windows
+				+ " | detections " + ex.over_threshold);
+		}
+		infoElement.textContent = lines.length? lines.join("\n") : "-";
+	}
+
+	//--- Processor ---
+
+	function createProcessor(){
+		if (rec){
+			addMessage("Releasing the previous processor first");
+			var old = rec;
+			rec = undefined;
+			old.release(createProcessor, createProcessor);
+			return;
+		}
+		var chainId = document.getElementById("kwsChain").value;
+		var chain = CHAINS[chainId];
+		var resampleQuality = chain.speexResampling? +document.getElementById("kwsResampleQuality").value : DEFAULT_RESAMPLE_QUALITY;
+		var bufferSize = +document.getElementById("kwsBufferSize").value || 512;
+		var sensitivity = +document.getElementById("kwsSensitivity").value;
+		var keywords = selectedKeywords();
+		if (!keywords.length){
+			addMessage("ERROR - Select at least one keyword");
+			return;
+		}
+
+		//Set every one explicitly: the library's own default for noiseSuppression
+		//is true. Constraints the browser does not support are skipped by it.
+		var micProcessing = {};
+		MIC_PROCESSING.forEach(function(key){
+			micProcessing[key] = document.getElementById("mic_" + key).checked;
+		});
+		SepiaFW.webAudio.setDefaultAudioConstraints(micProcessing);
+
+		//optional: a given wasmFile is used as is (see SIMD_PROBE above)
+		var wasmFile = hasWasmSimd? "sepia-keyword.wasm" : "sepia-keyword-scalar.wasm";
+		var preLoad = {
+			wasmFile: KWS_FOLDER + wasmFile,
+			modelFile: {type: 2, path: KWS_FOLDER + MODEL + ".kws"}
+		};
+		//every key that starts with 'prototypesFile' is one keyword
+		keywords.forEach(function(kw){
+			preLoad["prototypesFile_" + kw.name] = {type: 2, path: KWS_FOLDER + kw.file};
+		});
+
+		//A and B keep the context at the device rate so that B really measures
+		//speexdsp. C asks the browser for 16 kHz. The library remembers for the
+		//page's lifetime that native resampling "failed" once any run had a
+		//context rate other than its target (sepia-web-audio.js:557) - which A
+		//and B do on purpose - so C resets that before it tries.
+		SepiaFW.webAudio.tryNativeStreamResampling = chain.nativeResampling;
+		if (chain.nativeResampling) SepiaFW.webAudio.isNativeStreamResamplingSupported = true;
+
+		var switchModule = {
+			name: "speex-resample-switch",
+			settings: {
+				onmessage: onSwitchMessage,
+				sendToModules: [],
+				options: {
+					processorOptions: {
+						targetSampleRate: chain.rate,
+						resampleQuality: resampleQuality,
+						bufferSize: bufferSize,
+						calculateRmsVolume: true,
+						passThroughMode: 1		//0: none, 1: original (float32), 2: 16Bit PCM - as in the client
+					}
+				}
+			}
+		};
+
+		kwsWorker = {
+			name: "sepia-keyword-worker",
+			type: "worker",
+			preLoad: preLoad,
+			settings: {
+				onmessage: onKwsMessage,
+				options: {
+					setup: {
+						inputSampleRate: chain.rate,
+						channelCount: 1,
+						isFloat32: false,		//the Speex switch always posts Int16
+						inputSampleSize: bufferSize,
+						bufferSize: bufferSize,
+						sendClips: false,
+						useRing: true,
+						sensitivity: sensitivity
+					}
+				}
+			}
+		};
+
+		var modules = [switchModule, kwsWorker];
+		switchModule.settings.sendToModules.push(2);	//index: 0 is the source, 1 the switch, 2 the worker
+
+		lastInfo = {};
+		showInfo();
+		setState("loading ...");
+		addMessage("Creating processor", {chain: chainId, rate: chain.rate, nativeResampling: chain.nativeResampling, wasm: wasmFile, keywords: keywords.map(function(k){ return k.name; })});
+
+		rec = new SepiaFW.webAudio.Processor({
+			onaudiostart: function(info){ setState("running", "listening"); },
+			onaudioend: function(info){ setState("ready"); },
+			onrelease: function(info){ setState("released"); addMessage("Released"); },
+			onerror: function(err){ addMessage("ERROR - Processor", err); console.error("onerror", err); },
+			targetSampleRate: chain.rate,
+			modules: modules,
+			startSuspended: true,
+			initializerTimeout: 15000	//the first create also loads about 2 MB of model and WASM
+		}, function(msg){
+			lastInfo.ctx = {
+				chain: chainId,
+				sampleRate: msg.inputSampleRate,
+				wasm: wasmFile
+			};
+			lastInfo.mic = {
+				requested: micProcessing,
+				applied: (msg.sourceInfo && msg.sourceInfo.settings) || {}
+			};
+			showInfo();
+			setState("ready");
+			addMessage("Processor ready", {inputSampleRate: msg.inputSampleRate, source: msg.sourceInfo && msg.sourceInfo.type});
+			//If the browser did not give us 16 kHz, the library fell back to the
+			//device rate and the Speex switch converts instead: that would be
+			//chain B under C's name, so stop here.
+			if (chain.nativeResampling && msg.inputSampleRate != chain.rate){
+				var refusedRate = msg.inputSampleRate;
+				addMessage("ERROR - Native " + chain.rate + " Hz did not work, the context runs at " + refusedRate + " Hz");
+				releaseProcessor();
+				alert("Native 16 kHz didn't work (the browser runs the audio context at " + refusedRate
+					+ " Hz). Please choose chain A or B.");
+			}
+		}, function(err){
+			setState("init error");
+			addMessage("ERROR - Init", err);
+			console.error("onInitError", err);
+			rec = undefined;
+		});
+	}
+
+	function startListening(){
+		if (!rec){
+			addMessage("Create the processor first");
+			return;
+		}
+		//open the gate once audio flows, or right away if it already does
+		var openGate = function(){
+			kwsWorker.handle.sendToModule({gate: "open"});
+			isListening = true;
+		};
+		rec.start(openGate, openGate, function(err){ addMessage("ERROR - Start", err); });
+	}
+
+	function stopListening(){
+		if (!rec) return;
+		if (isListening) kwsWorker.handle.sendToModule({gate: "close"});
+		isListening = false;
+		rec.stop();
+	}
+
+	function releaseProcessor(){
+		if (!rec) return;
+		var old = rec;
+		rec = undefined;
+		isListening = false;
+		old.release();
+	}
+
+	function setSensitivity(level){
+		if (rec && kwsWorker && kwsWorker.handle){
+			kwsWorker.handle.sendToModule({setSensitivity: level});
+		}
+	}
+
+	function showChainNote(){
+		var chainId = document.getElementById("kwsChain").value;
+		var note = document.getElementById("kwsChainNote");
+		note.textContent = CHAIN_NOTES[chainId];
+		note.className = "note" + (chainId == "C"? " warning" : "");
+		document.getElementById("kwsResampleQualityGroup").style.display = CHAINS[chainId].speexResampling? "" : "none";
+	}
+
+	//Mark the processing options this browser cannot set at all.
+	function markUnsupportedMicOptions(){
+		var supported = {};
+		try { supported = navigator.mediaDevices.getSupportedConstraints(); }catch (err){}
+		MIC_PROCESSING.forEach(function(key){
+			if (!supported[key]){
+				var cb = document.getElementById("mic_" + key);
+				cb.disabled = true;
+				cb.title = "not supported by this browser";
+				cb.parentElement.appendChild(document.createTextNode(" (not supported)"));
+			}
+		});
+	}
+
+	showChainNote();
+	markUnsupportedMicOptions();
+	loadKeywords();
+</script>
+</body>
+</html>

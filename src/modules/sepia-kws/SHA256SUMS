@@ -1,0 +1,11 @@
+bfc4600d9db98dd056fc13a99fcaffb4d7bdb8aa84b380eacc1410535cfc9b06  sepia-keyword-worker.js
+80447316529fc62014fbaa047fb67c51ac30e32830cda370405349d8d66d196c  sepia-kws/VERSION
+988a0b29c8e5a373883082755cc44e2f50cef08022951792f1a47de9bdaccec4  sepia-kws/kws-collector-client.js
+e480fc8bc5b64601ddc7eacd90cb9b51b43d8af1c4f80d26f4265945fd9ce180  sepia-kws/kws-decision.js
+6ab572ea7e382f5d0166301377e0ef1a300ef6be9874da5b5219691e68894f7b  sepia-kws/sepia-keyword-scalar.wasm
+753b8feda6df128ea8b098ef5e70d30d47b32e047ee564e3bd96767782ce484a  sepia-kws/sepia-keyword.wasm
+636680740cabcfa5a0d73d83057a599b5fe1c8c00f981c5b665536ee55bc4054  sepia-kws/wdtcn-v4-s0-uno.computer.kwsp
+9576bd15c86986f096694743ce045cf12eb79b38c83ce74160144b4ee83e2425  sepia-kws/wdtcn-v4-s0-uno.hey_jarvis.kwsp
+f2ebd9748acdcbfede1cbbde2e7f05240efb1efa8cff82d6c9acd0c8d28a76c0  sepia-kws/wdtcn-v4-s0-uno.hey_sepia.kwsp
+b9ee27c81e2afff58d80c6483262f16a31ea91ced6e3d0fbf8719c3d1b848982  sepia-kws/wdtcn-v4-s0-uno.keywords.json
+1aecb27830f0256ee82e08bf1e50a3c83ea1f6e41a86cd95795bff327c121130  sepia-kws/wdtcn-v4-s0-uno.kws
