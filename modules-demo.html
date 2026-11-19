@@ -24,7 +24,10 @@
 	<script type="text/javascript" src="src/resources/fir-filter-resampler.js?v=0.9.7"></script>
 	
 	<link rel="stylesheet" type="text/css" href="test-pages/tests.css?v=0.9.7">
-	<style></style>
+	<style>
+		.kwsNote { width: 100%; margin: 4px 8px; font-size: 13px; color: #555; text-align: left; }
+		.kwsNote.warning { color: #a33; }
+	</style>
 </head>
 <body>
 <div id="mainView">
@@ -65,7 +68,9 @@
 		<div><label>VAD:</label><select id="vadWorkerSelect" onchange="setVadWorker(this.value);">
 			<option value="">off</option><option value="webrtc-vad-worker">WebRTC</option><option value="sepia-vad-worker" selected>SEPIA + MFCC (Beta)</option>
 		</select></div>
-		<div><label>Wake-Word:</label><input type="checkbox" id="useWakeWordWorker" onchange="useWakeWordWorker(this.checked);"></div>
+		<div><label>Wake-Word:</label><select id="wakeWordEngineSelect" onchange="setWakeWordEngine(this.value);">
+			<option value="" selected>off</option><option value="porcupine">Porcupine</option><option value="sepia-kws">SEPIA KWS</option>
+		</select></div>
 	</div>
 	<div style="position: relative;">
 		<div onclick="document.getElementById('logMessages').textContent='- Log -'" 
@@ -82,7 +87,7 @@
 		<label><b>Resampler (Speex WASM)</b></label>
 		<div><label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000"></div>
 		<div><label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"></div>
-		<div><label>Quality:</label><input id="resampleQuality" class="small" value="3" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)"></div>
+		<div><label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)"></div>
 		<div id="resamplerGainBox" class="slidecontainer" style="display: none;">
 			<label>Gain:</label><input id="resamplerGain" type="range" min="1" max="50" step="1" value="1" class="slider"><input type="number" id="resamplerGainShow" class="small">
 		</div>
@@ -94,21 +99,36 @@
 	<div id="vadWorkerControls" class="contorlGroup">
 		<label><b>VAD</b></label>
 		<div><label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="512" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);"></div>
-		<div><label>Mode:</label><input id="vadWorkerVadMode" class="small" type="number" value="1" placeholder="1-3 (3: agressive)" onchange="setVadWorkerVadMode(+this.value);"></div>
-		<div><label>Threshold:</label><input id="vadWorkerVadThreshold" class="small" type="number" value="0" step="0.1" title="e.g. ~1.3 (mode 1) or ~4 (mode 2-3)" onchange="setVadWorkerVadThreshold(+this.value);"></div>
+		<div><label>Mode:</label><select id="vadWorkerVadMode" onchange="setVadWorkerVadMode(+this.value);"></select></div>
+		<div id="vadWorkerVadThresholdBox"><label>Threshold:</label><input id="vadWorkerVadThreshold" class="small" type="number" value="1.5" step="0.1" title="set to the mode's default when the mode changes, 0: the mode's default" onchange="setVadWorkerVadThreshold(+this.value);"></div>
 	</div>
 	<div id="wakeWordWorkerControls" class="contorlGroup">
 		<label><b>Wake-Word</b></label>
-		<div><label>Buffer-Size:</label><input disabled placeholder="same as input atm."></div>
-		<div><label>Sensitivity:</label><input id="wakeWordSensitivity" class="small" type="number" value="0.7" max="1" min="0" step="0.1" placeholder="0=low, 1=high" onchange="setWakeWordSensitivity(+this.value);"></div>
-		<div><label>Porcupine Version:</label><select id="porcupineVersionSelect" onchange="setPorcupineVersion(+this.value);">
+		<div class="kwsOnly"><label>Chain:</label><select id="kwsChainSelect" onchange="setKwsChain(this.value);">
+			<option value="" selected>manual</option>
+			<option value="A">A: Speex 48 kHz Int16, KWS converts</option>
+			<option value="B">B: Speex converts to 16 kHz</option>
+			<option value="C">C: browser converts to 16 kHz (not recommended)</option>
+		</select></div>
+		<div class="kwsOnly" id="kwsKeywords">loading ...</div>
+		<div class="kwsOnly"><label>Sensitivity:</label><select id="kwsSensitivity" onchange="setKwsSensitivity(+this.value);">
+			<option value="1">1 - very strict</option>
+			<option value="2">2 - strict</option>
+			<option value="3">3 - focused</option>
+			<option value="4" selected>4 - regular (calibrated)</option>
+			<option value="5">5 - loose</option>
+		</select></div>
+		<div class="porcupineOnly"><label>Buffer-Size:</label><input disabled placeholder="same as input atm."></div>
+		<div class="porcupineOnly"><label>Sensitivity:</label><input id="wakeWordSensitivity" class="small" type="number" value="0.7" max="1" min="0" step="0.1" placeholder="0=low, 1=high" onchange="setWakeWordSensitivity(+this.value);"></div>
+		<div class="porcupineOnly"><label>Porcupine Version:</label><select id="porcupineVersionSelect" onchange="setPorcupineVersion(+this.value);">
 			<option value="14" selected>v1.4</option>
 			<option value="19">v1.9</option>
 			<option value="21">v2.1 (en)</option>
 		</select></div>
 		<div style="display: inline-flex; align-items: center;"><label>Gate:</label><div id="wakeWordGateState"></div><label></label></div>
 		<div><label>Control:</label><button onclick="wakeWordSetGate('open');">Listen</button><button onclick="wakeWordSetGate('close');">Stop</button><label></label></div>
-		<div><label>Key (v2+):</label><input id="porcupineAccessKey" placeholder="access key required for v2+"></div>
+		<div class="porcupineOnly"><label>Key (v2+):</label><input id="porcupineAccessKey" placeholder="access key required for v2+"></div>
+		<div class="kwsOnly kwsNote" id="kwsChainNote"></div>
 	</div>
 	<div id="waveEncoderControls" class="contorlGroup">
 		<label><b>Wave Encoder</b></label>
@@ -134,6 +154,7 @@
 		<div><label>VAD:</label><input type="checkbox" id="usePlot3" onchange="usePlot(3, this);"></div>
 		<div><label>VAD Energy:</label><input type="checkbox" id="usePlot4" checked onchange="usePlot(4, this);"></div>
 		<div><label>VAD Mfcc (only SEPIA):</label><input type="checkbox" id="useHeatmap1" checked onchange="useHeatmap(1, this);"></div>
+		<div><button onclick="clearAllPlots();">Clear all</button></div>
 	</div>
 	<!--<div id="chart1" class="chart"></div>-->
 	<div id="chart2" class="chart"></div>
@@ -164,7 +185,14 @@
 			+ "Input Sample-Rate=" + info.inputSampleRate
 			+ " - Source-Type=" + info.sourceInfo.type;
 		console.log("onReady", info);
-		if (doUseWakeWordWorker) showLogMessage("Available wake-words", window.porcupineWorker.settings.options.setup.keywords);
+		if (wakeWordEngine == "porcupine") showLogMessage("Available wake-words", window.porcupineWorker.settings.options.setup.keywords);
+		//The library falls back to the device rate when the browser refuses
+		//the requested one, and the Speex switch then converts instead.
+		if (wakeWordEngine == "sepia-kws" && document.getElementById("kwsChainSelect").value == "C"
+				&& info.inputSampleRate != targetSampleRate){
+			showLogMessage("WARNING - SEPIA KWS chain C", "Native " + targetSampleRate + " Hz didn't work, the browser runs the audio context at "
+				+ info.inputSampleRate + " Hz. Please choose another chain.");
+		}
 		
 		//for testing:
 		if (!doUseWaveEncoder && rec.source.mediaStream) createMediaRecorder(rec.source.mediaStream, info.sourceInfo);
@@ -181,6 +209,9 @@
 		statusElement.className = "listening"; 
 		showLogMessage("onaudiostart", info);
 		console.log("onaudiostart", info);
+		//Not tied to the VAD: the wake-word workers have no lookback, so a gate
+		//opened on a VAD event would miss the start of the keyword.
+		if (wakeWordEngine) wakeWordSetGate('open');
 	}
 	
 	function onAudioEnd(info){
@@ -191,6 +222,7 @@
 	
 	function onProcessorRelease(info){
 		statusElement.className = "";
+		resetGateStates();
 		showLogMessage("onrelease", info);
 		console.log("onrelease", info);
 	}
@@ -390,7 +422,50 @@
 			}
 		};
 		window.porcupineWorker = porcupineWorker;
-		var porcupineWorkerIndex;
+
+		var kwsWorker;
+		if (wakeWordEngine == "sepia-kws"){
+			var kwsKeywords = selectedKwsKeywords();
+			if (!kwsKeywords.length){
+				onProcessorInitError({name: "SEPIA KWS", message: "Select at least one keyword"});
+				return;
+			}
+			//no wasmFile: the worker probes for WASM SIMD and fetches the matching build itself
+			var kwsPreLoad = {
+				modelFile: {type: 2, path: KWS_FOLDER + KWS_MODEL + ".kws"}
+			};
+			//every key that starts with 'prototypesFile' is one keyword
+			kwsKeywords.forEach(function(kw){
+				kwsPreLoad["prototypesFile_" + kw.name] = {type: 2, path: KWS_FOLDER + kw.file};
+			});
+			kwsWorker = {
+				name: 'sepia-keyword-worker',
+				type: 'worker',
+				preLoad: kwsPreLoad,
+				settings: {
+					onmessage: onKwsMessage,
+					options: {
+						setup: {
+							inputSampleRate: (doUseResampler? resamplerSampleRate : 0),	//0: the worker takes the context rate (16 kHz or a whole multiple)
+							channelCount: 1,
+							isFloat32: (doUseResampler? false : true),
+							inputSampleSize: resamplerBufferSize,
+							bufferSize: resamplerBufferSize,
+							sendClips: false,
+							useRing: true,
+							sensitivity: +document.getElementById("kwsSensitivity").value
+						}
+					}
+				}
+			};
+			//C asks the browser for its rate again: the library stops trying
+			//for the page's lifetime after one refusal (sepia-web-audio.js:556-557).
+			if (document.getElementById("kwsChainSelect").value == "C"){
+				SepiaFW.webAudio.isNativeStreamResamplingSupported = true;
+			}
+		}
+		window.wakeWordWorker = (wakeWordEngine == "sepia-kws")? kwsWorker : porcupineWorker;
+		var wakeWordWorkerIndex;
 		
 		//put together modules
 		var activeModules = [];
@@ -417,14 +492,14 @@
 			resampler.settings.sendToModules.push(vadWorkerIndex);
 			resamplerWorker.settings.sendToModules.push(vadWorkerIndex);
 		}
-		if (doUseWakeWordWorker){
-			activeModules.push(porcupineWorker);
-			porcupineWorkerIndex = activeModules.length;
+		if (wakeWordEngine){
+			activeModules.push(window.wakeWordWorker);
+			wakeWordWorkerIndex = activeModules.length;
 			
 			//add to send function
-			bufferSwitch.settings.sendToModules.push(porcupineWorkerIndex);
-			resampler.settings.sendToModules.push(porcupineWorkerIndex);
-			resamplerWorker.settings.sendToModules.push(porcupineWorkerIndex);
+			bufferSwitch.settings.sendToModules.push(wakeWordWorkerIndex);
+			resampler.settings.sendToModules.push(wakeWordWorkerIndex);
+			resamplerWorker.settings.sendToModules.push(wakeWordWorkerIndex);
 		}
 		if (doUseWaveEncoder){
 			activeModules.push(waveEncoder);
@@ -436,6 +511,9 @@
 			resamplerWorker.settings.sendToModules.push(waveEncoderIndex);
 		}
 				
+		//every worker of the new processor starts with a closed gate
+		resetGateStates();
+
 		//create processor
 		rec = new SepiaFW.webAudio.Processor({
 			onaudiostart: onAudioStart,
@@ -450,7 +528,7 @@
 			debugLog: onDebugLog,
 			customSourceTest: useWhiteNoiseTest,
 			customSource: customSource,
-			initializerTimeout: 8000
+			initializerTimeout: (wakeWordEngine == "sepia-kws"? 15000 : 8000)	//the KWS loads about 2 MB of model and WASM
 			
 		}, function(msg){
 			//Init. ready
@@ -615,12 +693,16 @@
 	}
 	function setVoiceActivity(data){
 		//console.log("vad", data);
+		//The VAD chart takes three numbers per point for both VADs: its number
+		//of lines is fixed by the first call and stays for the page's lifetime.
 		if (data.voiceLoudness != undefined){
 			data.voiceLoudness.forEach(function(ld){
-				plotData([[ld - data.movingAvgLoudness], 0, [data.maxLoudness - data.movingAvgLoudness]], 3, true);	//[data.movingAvgLoudness]
+				plotData([ld - data.movingAvgLoudness, 0, data.maxLoudness - data.movingAvgLoudness], 3, true);
 			});
 		}else if (data.voiceActivity != undefined){
-			plotData(data.voiceActivity, 3);
+			data.voiceActivity.forEach(function(va){
+				plotData([va, 0, 1], 3, true);
+			});
 		}
 		if (data.voiceEnergy != undefined){
 			plotData(data.voiceEnergy, 4);
@@ -628,7 +710,8 @@
 		if (data.vadSequenceCode != undefined){
 			console.log("VAD sequence event: " + data.vadSequenceMsg);
 			//1: voice start, 2: sequence started, 3: voice finished, 4: voice finished max. time, 5: full sequence complete
-			if (data.vadSequenceCode == 2 && doUseWaveEncoder && vadAutoActivate){
+			//an open gate (e.g. 'Capture') is left alone: opening again clears the recording
+			if (data.vadSequenceCode == 2 && doUseWaveEncoder && vadAutoActivate && !waveEncoderGateOpen){
 				vadAutoActivate = false;
 				vadAutoActivateSequenceWasTrigger = false;
 				waveEncoderSetGate('open');
@@ -759,6 +842,12 @@
 	var waveEncoderGate = document.getElementById('waveEncoderGateState');
 	var waveEncoderGateOpen = false;
 	function waveEncoderSetGate(state){
+		//The worker reports every close, even of a closed gate, and each report
+		//fetches the WAV again (see 'waveEncoderMessage').
+		if (state == "close" && !waveEncoderGateOpen){
+			console.log("waveEncoderSetGate", state, "- already closed");
+			return;
+		}
 		window.waveEncoder.handle.sendToModule({gate: state});
 		//waveEncoderGate.textContent = state;
 		waveEncoderGate.className = state;
@@ -767,6 +856,16 @@
 			vadAutoActivate = true;
 		}
 		console.log("waveEncoderSetGate", state);
+	}
+	//Back to the look of a fresh page: the gate displays only follow clicks
+	//and gate events, so they would keep the state of a previous processor.
+	function resetGateStates(){
+		waveEncoderGate.className = "";
+		waveEncoderGateOpen = false;
+		wakeWordGate.className = "";
+		wakeWordGateOpen = false;
+		vadAutoActivate = true;
+		vadAutoActivateSequenceWasTrigger = false;
 	}
 	function waveEncoderGetWave(){
 		window.waveEncoder.handle.sendToModule({request: {get: "wave"}});
@@ -799,7 +898,10 @@
 		}
 		if (data.gate){
 			waveEncoderGate.className = data.gate.isOpen? "open" : "close";
+			//follow the worker: it also closes the gate itself at 'Record Max.'
+			waveEncoderGateOpen = !!data.gate.isOpen;
 			if (data.gate.isOpen === false){
+				vadAutoActivate = true;
 				//waveEncoderGetBuffer();		//TODO: this destroys the lookback buffer
 				waveEncoderGetWave();
 				if (data.gate.closedAt){
@@ -826,13 +928,56 @@
 	var vadWorkerName = document.getElementById("vadWorkerSelect").value;
 	var doUseVadWorker = !!vadWorkerName;
 	var vadWorkerBufferSize = +document.getElementById("vadWorkerBufferSize").value; 	//e.g. 512 (Meyda) or 960 (WebRTC);
-	var vadWorkerVadMode = +document.getElementById("vadWorkerVadMode").value; 				//e.g. 3;
+	var vadWorkerVadMode = 1;		//kept when the VAD changes, if the new one has that mode
+	//Same option, different meaning: WebRTC sets its aggressiveness, SEPIA
+	//picks the feature and the default threshold (sepia-vad-worker.js:51-55, :393-408, :462-466).
+	var VAD_MODES = {
+		"webrtc-vad-worker": [
+			[0, "0 - least aggressive"],
+			[1, "1"],
+			[2, "2"],
+			[3, "3 - most aggressive"]
+		],
+		"sepia-vad-worker": [
+			[1, "1 - loudness, bark bands 1-5 (threshold 1.5)", 1.5],
+			[2, "2 - loudness, MFCC average (threshold 3.5)", 3.5],
+			[3, "3 - MFCC change, weighted (threshold 3.5)", 3.5]
+		]
+	};
+	//Only the SEPIA VAD reads a threshold. The field shows the mode's default
+	//so that it states the value the worker will use.
+	function updateVadThreshold(){
+		var mode = (VAD_MODES[vadWorkerName] || []).filter(function(m){ return m[0] == vadWorkerVadMode; })[0];
+		var hasThreshold = !!(mode && mode[2] != undefined);
+		document.getElementById("vadWorkerVadThresholdBox").style.display = hasThreshold? "" : "none";
+		if (hasThreshold){
+			var input = document.getElementById("vadWorkerVadThreshold");
+			input.value = mode[2];
+			setVadWorkerVadThreshold(mode[2]);
+		}
+	}
+	function fillVadModes(workerName){
+		var modes = VAD_MODES[workerName];
+		if (!modes) return;
+		var sel = document.getElementById("vadWorkerVadMode");
+		sel.innerHTML = "";
+		var hasCurrent = modes.some(function(m){ return m[0] == vadWorkerVadMode; });
+		if (!hasCurrent) vadWorkerVadMode = 1;
+		modes.forEach(function(m){
+			var opt = document.createElement("option");
+			opt.value = m[0];
+			opt.textContent = m[1];
+			opt.selected = (m[0] == vadWorkerVadMode);
+			sel.appendChild(opt);
+		});
+	}
 	var vadWorkerVadThreshold = +document.getElementById("vadWorkerVadThreshold").value; 	//e.g. 4 (Meyda only, mode 1: 1.3, mode 2-n: 3-4;
 	function setVadWorkerBufferSize(val){
 		vadWorkerBufferSize = val;
 	}
 	function setVadWorkerVadMode(val){
 		vadWorkerVadMode = val;
+		updateVadThreshold();
 	}
 	function setVadWorkerVadThreshold(val){
 		vadWorkerVadThreshold = val;
@@ -848,10 +993,29 @@
 	function setVadWorker(nuVadWorkerName){
 		useVadWorker(!!nuVadWorkerName);
 		vadWorkerName = nuVadWorkerName;
+		fillVadModes(nuVadWorkerName);
+		updateVadThreshold();
+		suggestVadBufferSize(nuVadWorkerName);
+	}
+	//WebRTC needs 10, 20 or 30 ms frames (webrtc-vad-worker.js:95-105), 960 fits
+	//8, 16, 32 and 48 kHz. The SEPIA VAD uses 512 frames at 16 kHz and needs a
+	//multiple of a power of 2 otherwise (sepia-vad-worker.js:110-133).
+	var VAD_BUFFER_SIZES = {
+		"webrtc-vad-worker": 960,
+		"sepia-vad-worker": 512
+	};
+	function suggestVadBufferSize(workerName){
+		var size = VAD_BUFFER_SIZES[workerName];
+		var input = document.getElementById("vadWorkerBufferSize");
+		if (!size || +input.value == size) return;
+		if (confirm("The buffer size " + input.value + " may not meet the frame requirements of the selected VAD. " + size + " meets them at every sample rate this VAD accepts. Change it to " + size + "?")){
+			input.value = size;
+			setVadWorkerBufferSize(size);
+		}
 	}
 	setVadWorker(vadWorkerName);
 	
-	var doUseWakeWordWorker = document.getElementById("useWakeWordWorker").checked;
+	var wakeWordEngine = document.getElementById("wakeWordEngineSelect").value;	//"", "porcupine" or "sepia-kws"
 	var wakeWordGate = document.getElementById('wakeWordGateState');
 	var wakeWordGateOpen = false;
 	var wakeWordSensitivity = +document.getElementById("wakeWordSensitivity").value;
@@ -866,21 +1030,131 @@
 		console.log("porcupineVersion", porcupineVersion);
 	}
 	function wakeWordSetGate(state){
-		window.porcupineWorker.handle.sendToModule({gate: state});
+		if (!window.wakeWordWorker || !window.wakeWordWorker.handle) return;
+		window.wakeWordWorker.handle.sendToModule({gate: state});
 		//wakeWordGate.textContent = state;
 		wakeWordGate.className = state;
 		wakeWordGateOpen = (state == "open");
 		console.log("wakeWordSetGate", state);
 	}
-	function useWakeWordWorker(useIt){
-		doUseWakeWordWorker = useIt;
-		if (useIt){
-			document.getElementById("wakeWordWorkerControls").style.display = "";
-		}else{
-			document.getElementById("wakeWordWorkerControls").style.display = "none";
+	function setWakeWordEngine(engine){
+		wakeWordEngine = engine;
+		document.getElementById("wakeWordWorkerControls").style.display = engine? "" : "none";
+		document.querySelectorAll("#wakeWordWorkerControls .porcupineOnly").forEach(function(ele){
+			ele.style.display = (engine == "porcupine")? "" : "none";
+		});
+		document.querySelectorAll("#wakeWordWorkerControls .kwsOnly").forEach(function(ele){
+			ele.style.display = (engine == "sepia-kws")? "" : "none";
+		});
+		if (engine == "sepia-kws" && !kwsAvailableKeywords) loadKwsKeywords();
+	}
+
+	//SEPIA KWS (sepia-keyword-worker)
+	var KWS_FOLDER = "src/modules/sepia-kws/";
+	var KWS_MODEL = "wdtcn-v4-s0-uno";
+	var kwsAvailableKeywords;
+	//Presets for the fields above. 'target' 0 is "Auto" (device rate).
+	var KWS_CHAINS = {
+		A: {target: 0, rate: 48000},
+		B: {target: 0, rate: 16000, quality: 7},
+		C: {target: 16000, rate: 16000}
+	};
+	var KWS_CHAIN_NOTES = {
+		"": "Manual: the fields above apply as they are. The KWS takes 16 kHz or a whole multiple of it, "
+			+ "Int16 from the resampler or Float32 without it.",
+		A: "Recommended. The audio context runs at the device rate, the Speex switch at 48000 only converts "
+			+ "to Int16 and the KWS resamples with its own filter. The Speex quality only applies on a 44.1 kHz device.",
+		B: "The Speex switch converts to 16 kHz with speexdsp. Use quality 7 or higher: 5 measurably raises "
+			+ "scores under the threshold and adds detections.",
+		C: "Not recommended, for comparison only. The browser converts to 16 kHz when it creates the audio context. "
+			+ "The quality of that resampler is unknown, and echo cancellation, for example, often causes problems "
+			+ "at a native 16 kHz. If the browser does not give 16 kHz, the log says so."
+	};
+	function setKwsChain(chainId){
+		var note = document.getElementById("kwsChainNote");
+		note.textContent = KWS_CHAIN_NOTES[chainId];
+		note.className = "kwsOnly kwsNote" + (chainId == "C"? " warning" : "");
+		var chain = KWS_CHAINS[chainId];
+		if (!chain) return;
+		document.getElementById("useResampler").checked = true;
+		useResampler(true);
+		targetSampleRateSelector.value = chain.target? String(chain.target) : "";
+		targetSampleRate = chain.target;
+		var rateInput = document.getElementById("resamplerSampleRate");
+		rateInput.value = chain.rate;
+		setResamplerSampleRate(rateInput);
+		if (chain.quality){
+			var qualityInput = document.getElementById("resampleQuality");
+			qualityInput.value = chain.quality;
+			setResampleQuality(qualityInput);
 		}
 	}
-	useWakeWordWorker(doUseWakeWordWorker);
+	function loadKwsKeywords(){
+		fetch(KWS_FOLDER + KWS_MODEL + ".keywords.json").then(function(res){
+			if (!res.ok) throw new Error("HTTP " + res.status);
+			return res.json();
+		}).then(function(json){
+			kwsAvailableKeywords = json.keywords || [];
+			var box = document.getElementById("kwsKeywords");
+			box.innerHTML = "";
+			kwsAvailableKeywords.forEach(function(kw){
+				var label = document.createElement("label");
+				label.textContent = kw.name;
+				var cb = document.createElement("input");
+				cb.type = "checkbox";
+				cb.checked = true;
+				cb.value = kw.name;
+				box.appendChild(label);
+				box.appendChild(cb);
+			});
+		}).catch(function(err){
+			showLogMessage("ERROR - SEPIA KWS - Failed to load keyword list", String(err));
+		});
+	}
+	function selectedKwsKeywords(){
+		var selected = [];
+		document.querySelectorAll("#kwsKeywords input:checked").forEach(function(cb){
+			(kwsAvailableKeywords || []).forEach(function(kw){
+				if (kw.name == cb.value) selected.push(kw);
+			});
+		});
+		return selected;
+	}
+	function setKwsSensitivity(level){
+		//applies right away while a processor runs, otherwise on the next create
+		if (wakeWordEngine == "sepia-kws" && window.wakeWordWorker && window.wakeWordWorker.handle){
+			window.wakeWordWorker.handle.sendToModule({setSensitivity: level});
+		}
+	}
+	function onKwsMessage(data){
+		if (!data) return;
+		if (data.moduleState == 1 && data.moduleInfo){
+			var mi = data.moduleInfo;
+			showLogMessage("SEPIA KWS - ready", {captureSampleRate: mi.captureSampleRate, resampling: mi.resampling,
+				inputIsFloat32: mi.inputIsFloat32, simd: mi.simd, wasmUrl: mi.wasmUrl, keywords: mi.keywords, sensitivity: mi.sensitivity, thresholds: mi.thresholds});
+		}else if (data.keyword){
+			showLogMessage("Wake-word detected", {keyword: data.keyword, score: data.score, threshold: data.threshold});
+		}else if (data.moduleEvent && data.kwsExposure){
+			var ex = data.kwsExposure;
+			showLogMessage("SEPIA KWS - exposure", {reason: ex.reason, windows: ex.windows, listened_seconds: ex.listened_seconds,
+				ms_per_window: (ex.windows? Math.round(ex.score_ms / ex.windows * 100) / 100 : null), ms_max: ex.score_ms_max,
+				behind_windows: ex.behind_windows});
+		}else if (data.moduleEvent && data.kwsThresholds){
+			if (data.kwsThresholds.refused) showLogMessage("SEPIA KWS - sensitivity refused", data.kwsThresholds.refused);
+			else showLogMessage("SEPIA KWS - thresholds", {sensitivity: data.kwsThresholds.sensitivity, thresholds: data.kwsThresholds.thresholds});
+		}else if (data.moduleEvent && data.kwsEvent){
+			//A kept record without detection is a near miss: a window over the
+			//shadow threshold but under the keyword's own.
+			if (!data.kwsEvent.over_threshold){
+				showLogMessage("SEPIA KWS - near miss", {keyword: data.kwsEvent.keyword, score: data.kwsEvent.score});
+			}
+		}else if (data.moduleEvent && data.gate){
+			wakeWordGate.className = data.gate.isOpen? "open" : "close";
+			wakeWordGateOpen = !!data.gate.isOpen;
+		}
+	}
+	setKwsChain(document.getElementById("kwsChainSelect").value);
+	setWakeWordEngine(wakeWordEngine);
 	
 	function showMediaRecorderCodecs(){
 		//add codec options
