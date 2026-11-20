@@ -27,6 +27,17 @@
 	<style>
 		.kwsNote { width: 100%; margin: 4px 8px; font-size: 13px; color: #555; text-align: left; }
 		.kwsNote.warning { color: #a33; }
+		.contorlGroup > h3 { flex-basis: 100%; font-size: 17px; margin: 12px 0 4px; }
+		/* While a pipeline exists: what applies to it right away is outlined, the rest applies on the next 'Create' */
+		#mainView.pipeline-active .apply-live { outline: 2px solid #2a2; outline-offset: 1px; }
+		#mainView.pipeline-active input:not(.apply-live), #mainView.pipeline-active select:not(.apply-live) { opacity: 0.6; }
+		.applyNote { margin: 6px 0; font-size: 13px; color: #555; }
+		/* '#mainView >' to win over '#mainView > div' (tests.css); the legend closes the plot above it */
+		#mainView > #chart5 { margin-bottom: 0; }
+		#mainView > #chart5Legend { margin-top: 0; }
+		.chartLegend { font-size: 13px; color: #fff; background: #141619; padding: 4px; border: 1px solid #000; border-top: 0; }
+		.chartLegend > span { margin: 0 8px; }
+		.contorlGroup > p.moduleIntro { flex-basis: 100%; margin: 0 0 8px; font-size: 13px; color: #555; }
 	</style>
 </head>
 <body>
@@ -40,6 +51,7 @@
 		<button onclick="stopRecording(this);">Stop</button>
 		<button onclick="releaseRecorder(this);">Release</button>
 	</div>
+	<p class="applyNote">While a pipeline is active, fields with a green outline apply right away, all others apply on the next 'Create'.</p>
 	<div id="inputSourceOptions" class="contorlGroup center">
 		<div><label>Target Sample-Rate:</label><select id="sampleRateSelector">
 			<option value="" selected>Auto</option>
@@ -66,7 +78,7 @@
 		<div><label>Resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);"></div>
 		<div><label>Wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);"></div>
 		<div><label>VAD:</label><select id="vadWorkerSelect" onchange="setVadWorker(this.value);">
-			<option value="">off</option><option value="webrtc-vad-worker">WebRTC</option><option value="sepia-vad-worker" selected>SEPIA + MFCC (Beta)</option>
+			<option value="">off</option><option value="webrtc-vad-worker">WebRTC</option><option value="sepia-vad-worker">SEPIA + MFCC (Beta)</option><option value="silero-vad-worker" selected>Silero (FluidVad)</option>
 		</select></div>
 		<div><label>Wake-Word:</label><select id="wakeWordEngineSelect" onchange="setWakeWordEngine(this.value);">
 			<option value="" selected>off</option><option value="porcupine">Porcupine</option><option value="sepia-kws">SEPIA KWS</option>
@@ -78,13 +90,15 @@
 		<div id="logMessages">- Log -</div>
 	</div>
 	<div id="volumeMeterControls" class="contorlGroup">
-		<label><b>Volume-Processor</b></label>
-		<div><label>Gain:</label><input id="volumeMeterGain" class="small" type="number" value="1.0" onchange="setVolumeGain(+this.value);"></div>
-		<div><label>FPS:</label><input id="volumeMeterFps" class="small" value="40" onchange="setVolumeProcFps(+this.value);"></div>
+		<h3>Volume-Processor</h3>
+		<p class="moduleIntro">Amplifies the microphone signal by 'Gain' and shows its level on the meter.</p>
+		<div><label>Gain:</label><input id="volumeMeterGain" class="small apply-live" type="number" value="1.0" onchange="setVolumeGain(+this.value);"></div>
+		<div><label>FPS:</label><input id="volumeMeterFps" class="small apply-live" value="40" onchange="setVolumeProcFps(+this.value);"></div>
 		<div style="display: inline-flex; align-items: center;"><label>Meter:</label><div id="volumeMeterNodeOutput"><div></div></div></div>
 	</div>
 	<div id="resamplerControls" class="contorlGroup">
-		<label><b>Resampler (Speex WASM)</b></label>
+		<h3>Resampler (Speex WASM)</h3>
+		<p class="moduleIntro">Converts the audio to the target sample rate with speexdsp and passes it on in chunks of 'Buffer-Size' samples to the modules after it.</p>
 		<div><label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000"></div>
 		<div><label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"></div>
 		<div><label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)"></div>
@@ -93,17 +107,20 @@
 		</div>
 	</div>
 	<div id="basicBufferControls" class="contorlGroup" style="display:none;">
-		<label><b>Basic Buffer</b></label>
+		<h3>Basic Buffer</h3>
+		<p class="moduleIntro">Collects the audio into chunks of 'Buffer-Size' samples at the original rate, for the modules after it; used when the resampler is off.</p>
 		<div><label>Buffer-Size:</label><input id="basicBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"></div>
 	</div>
 	<div id="vadWorkerControls" class="contorlGroup">
-		<label><b>VAD</b></label>
+		<h3>VAD</h3>
+		<p class="moduleIntro">Detects speech and reports when an utterance starts and ends; here it also opens and closes the wave encoder's recording.</p>
 		<div><label>Buffer-Size:</label><input id="vadWorkerBufferSize" class="small" value="512" placeholder="960" onchange="setVadWorkerBufferSize(+this.value);"></div>
 		<div><label>Mode:</label><select id="vadWorkerVadMode" onchange="setVadWorkerVadMode(+this.value);"></select></div>
 		<div id="vadWorkerVadThresholdBox"><label>Threshold:</label><input id="vadWorkerVadThreshold" class="small" type="number" value="1.5" step="0.1" title="set to the mode's default when the mode changes, 0: the mode's default" onchange="setVadWorkerVadThreshold(+this.value);"></div>
 	</div>
 	<div id="wakeWordWorkerControls" class="contorlGroup">
-		<label><b>Wake-Word</b></label>
+		<h3>Wake-Word</h3>
+		<p class="moduleIntro">Listens for a keyword while its gate is open, with Porcupine or the SEPIA KWS as chosen above.</p>
 		<div class="kwsOnly"><label>Chain:</label><select id="kwsChainSelect" onchange="setKwsChain(this.value);">
 			<option value="" selected>manual</option>
 			<option value="A">A: Speex 48 kHz Int16, KWS converts</option>
@@ -111,12 +128,12 @@
 			<option value="C">C: browser converts to 16 kHz (not recommended)</option>
 		</select></div>
 		<div class="kwsOnly" id="kwsKeywords">loading ...</div>
-		<div class="kwsOnly"><label>Sensitivity:</label><select id="kwsSensitivity" onchange="setKwsSensitivity(+this.value);">
+		<div class="kwsOnly"><label>Sensitivity:</label><select id="kwsSensitivity" class="apply-live" onchange="setKwsSensitivity(+this.value);">
 			<option value="1">1 - very strict</option>
 			<option value="2">2 - strict</option>
 			<option value="3">3 - focused</option>
-			<option value="4" selected>4 - regular (calibrated)</option>
-			<option value="5">5 - loose</option>
+			<option value="4" selected>4 - regular (default)</option>
+			<option value="5">5 - permissive</option>
 		</select></div>
 		<div class="porcupineOnly"><label>Buffer-Size:</label><input disabled placeholder="same as input atm."></div>
 		<div class="porcupineOnly"><label>Sensitivity:</label><input id="wakeWordSensitivity" class="small" type="number" value="0.7" max="1" min="0" step="0.1" placeholder="0=low, 1=high" onchange="setWakeWordSensitivity(+this.value);"></div>
@@ -131,15 +148,19 @@
 		<div class="kwsOnly kwsNote" id="kwsChainNote"></div>
 	</div>
 	<div id="waveEncoderControls" class="contorlGroup">
-		<label><b>Wave Encoder</b></label>
-		<div><label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="0" onchange="setWaveEncoderLookback(this);"></div>
+		<h3>Wave Encoder</h3>
+		<p class="moduleIntro">Records the audio while its gate is open and turns it into a WAV file; 'Lookback' adds the audio from just before the gate opened.</p>
+		<div><label>Lookback (ms):</label><input id="waveEncoderLookback" class="small" value="1000" onchange="setWaveEncoderLookback(this);"></div>
+		<div><label>VAD End Silence (ms):</label><input id="vadEndSilence" class="small" value="1500" title="silence after speech that ends a VAD sequence; applies on Create" onchange="setVadEndSilence(this);"></div>
+		<div><label>VAD Stop After Min. (ms):</label><input id="vadStopAfterMin" class="small apply-live" value="0" title="a VAD sequence (from its start to the detected end, incl. the trailing silence) must be longer than this to stop the recording; a shorter one only triggers it, and the next sequence or Record Max. ends it. 0: every sequence stops it. Applies right away" onchange="setVadStopAfterMin(this);"></div>
 		<div><label>Record Max. (ms):</label><input id="waveEncoderRecordMax" class="small" value="6000" onchange="setWaveEncoderRecordMax(this);"></div>
 		<div style="display: inline-flex; align-items: center;"><label>Gate:</label><div id="waveEncoderGateState"></div><label></label></div>
 		<div><label>Control:</label><button onclick="waveEncoderSetGate('open');">Capture</button><button onclick="waveEncoderSetGate('close');">Stop</button><label></label></div>
 		<div><label>Export:</label><button onclick="waveEncoderGetWave();">Get Wave-File</button><button onclick="waveEncoderGetBuffer();">Show Buffer</button></div>
 	</div>
 	<div id="mediaRecorderControls" class="contorlGroup" style="display:none;">
-		<label><b>Media Recorder</b></label>
+		<h3>Media Recorder</h3>
+		<p class="moduleIntro">Records with the browser's own MediaRecorder in a codec the browser offers; used when the wave encoder is off.</p>
 		<div><label>Codec/format:</label><select id="mediaRecorderCodec"><option value="" selected>Default</option></select></div>
 		<div><label>Realtime Decoding:</label><input id="mediaRecorderDecode" type="checkbox"></div>
 		<div><label>Record Max. (ms):</label><input id="mediaRecorderRecordMax" class="small" value="6000"></div>
@@ -150,22 +171,26 @@
 		<label><b>Show plots:</b></label>
 		<div style="flex: 1 0 100%;"></div>
 		<!--<div><label>Plot 1:</label><input type="checkbox" id="usePlot1" onchange="usePlot(1, this);"></div>-->
-		<div><label>Volume RMS:</label><input type="checkbox" id="usePlot2" checked onchange="usePlot(2, this);"></div>
-		<div><label>VAD:</label><input type="checkbox" id="usePlot3" onchange="usePlot(3, this);"></div>
-		<div><label>VAD Energy:</label><input type="checkbox" id="usePlot4" checked onchange="usePlot(4, this);"></div>
-		<div><label>VAD Mfcc (only SEPIA):</label><input type="checkbox" id="useHeatmap1" checked onchange="useHeatmap(1, this);"></div>
+		<div><label>Volume RMS:</label><input type="checkbox" id="usePlot2" class="apply-live" checked onchange="usePlot(2, this);"></div>
+		<div><label>VAD Signal:</label><input type="checkbox" id="usePlot3" class="apply-live" checked onchange="usePlot(3, this);"></div>
+		<div><label>VAD Energy:</label><input type="checkbox" id="usePlot4" class="apply-live" checked onchange="usePlot(4, this);"></div>
+		<div><label>VAD Mfcc (only SEPIA):</label><input type="checkbox" id="useHeatmap1" class="apply-live" onchange="useHeatmap(1, this);"></div>
+		<div><label>KWS Score (SEPIA):</label><input type="checkbox" id="usePlot5" class="apply-live" onchange="usePlot(5, this); showKwsScoreLegend();"></div>
 		<div><button onclick="clearAllPlots();">Clear all</button></div>
 	</div>
 	<!--<div id="chart1" class="chart"></div>-->
 	<div id="chart2" class="chart"></div>
-	<div id="chart3" class="chart" style="display: none;"></div>
+	<div id="chart3" class="chart"></div>
 	<div id="chart4" class="chart"></div>
 	<div id="heatmap1" class="chart"></div>
+	<div id="chart5" class="chart"></div>
+	<div id="chart5Legend" class="chartLegend"></div>
 </div>
 <script type='text/javascript' src="test-pages/test-commons.js"></script>
 <script type='text/javascript'>
 	var infoElement = document.getElementById('info');
 	var statusElement = document.getElementById('status');
+	var mainViewElement = document.getElementById('mainView');
 	var targetSampleRateSelector = document.getElementById("sampleRateSelector");
 	targetSampleRateSelector.onchange = function(){
 		targetSampleRate = +targetSampleRateSelector.value;
@@ -178,6 +203,7 @@
 	
 	function onProcessorReady(info){
 		statusElement.className = "ready";
+		mainViewElement.classList.add("pipeline-active");
 		showLogMessage("onReady", info);
 		if (info.sourceInfo.label) showLogMessage("onReady details: sourceInfo.label", info.sourceInfo.label);
 		if (info.sourceInfo.settings) showLogMessage("onReady details: sourceInfo.settings", info.sourceInfo.settings);
@@ -201,6 +227,7 @@
 	
 	function onProcessorInitError(err){
 		statusElement.className = "";
+		mainViewElement.classList.remove("pipeline-active");
 		showLogMessage("ERROR - onInitError", err);
 		console.error("onInitError", err);
 	}
@@ -222,6 +249,7 @@
 	
 	function onProcessorRelease(info){
 		statusElement.className = "";
+		mainViewElement.classList.remove("pipeline-active");
 		resetGateStates();
 		showLogMessage("onrelease", info);
 		console.log("onrelease", info);
@@ -245,6 +273,15 @@
 	var scriptProcessorBufferSize = 512;
 	
 	async function createRecorder(btn){
+		//One pipeline at a time: a second one would leave the first holding the source, out of reach of 'Release'.
+		if (rec){
+			showLogMessage("Create", "releasing the active pipeline first");
+			var oldRec = rec;
+			rec = undefined;
+			var createNew = function(){ createRecorder(btn); };
+			oldRec.release(createNew, createNew, function(err){ showLogMessage("ERROR - release", err); });
+			return;
+		}
 		//audio source
 		var useWhiteNoiseTest = false; //document.getElementById("useWhiteNoiseRecorder").checked;
 		var customSource = undefined;
@@ -384,7 +421,7 @@
 						//voiceEnergyDropRate: 2,
 						sequence: {
 							//voiceActivationTime: 250,
-							//voiceResetTime: 1500,
+							voiceResetTime: vadEndSilence,
 							//silenceActivationTime: 250,
 							maxSequenceTime: 6000,
 							minSequenceTime: 600
@@ -456,7 +493,9 @@
 							bufferSize: resamplerBufferSize,
 							sendClips: false,
 							useRing: true,
-							sensitivity: +document.getElementById("kwsSensitivity").value
+							sensitivity: +document.getElementById("kwsSensitivity").value,
+							emitWindowScores: true,		//for the 'KWS Score' plot, about 10 messages a second
+							exposureEverySeconds: 1		//timing for the plot's legend, counted in audio seconds
 						}
 					}
 				}
@@ -531,7 +570,8 @@
 			debugLog: onDebugLog,
 			customSourceTest: useWhiteNoiseTest,
 			customSource: customSource,
-			initializerTimeout: (wakeWordEngine == "sepia-kws"? 15000 : 8000)	//the KWS loads about 2 MB of model and WASM
+			//the KWS loads about 2 MB of model and WASM, Silero 5.5 MB and builds its model for about a second
+			initializerTimeout: ((wakeWordEngine == "sepia-kws" || (doUseVadWorker && vadWorkerName == "silero-vad-worker"))? 15000 : 8000)
 			
 		}, function(msg){
 			//Init. ready
@@ -696,11 +736,15 @@
 	}
 	function setVoiceActivity(data){
 		//console.log("vad", data);
-		//The VAD chart takes three numbers per point for both VADs: its number
+		//The VAD chart takes three numbers per point for every VAD: its number
 		//of lines is fixed by the first call and stays for the page's lifetime.
 		if (data.voiceLoudness != undefined){
 			data.voiceLoudness.forEach(function(ld){
 				plotData([ld - data.movingAvgLoudness, 0, data.maxLoudness - data.movingAvgLoudness], 3, true);
+			});
+		}else if (data.voiceProbability != undefined){
+			data.voiceProbability.forEach(function(p){
+				plotData([p, vadWorkerVadThreshold, 1], 3, true);
 			});
 		}else if (data.voiceActivity != undefined){
 			data.voiceActivity.forEach(function(va){
@@ -720,7 +764,7 @@
 				waveEncoderSetGate('open');
 			}
 			if (data.vadSequenceCode == 5 && waveEncoderGateOpen){
-				if ((data.vadSequenceEnded - data.vadSequenceStarted) > vadMinRecordTimeAfterActivate){
+				if ((data.vadSequenceEnded - data.vadSequenceStarted) > vadStopAfterMin){
 					waveEncoderSetGate('close');
 				}else{
 					vadAutoActivateSequenceWasTrigger = true;
@@ -756,7 +800,8 @@
 	
 	var vadAutoActivate = true;
 	var vadAutoActivateSequenceWasTrigger = false;
-	var vadMinRecordTimeAfterActivate = 3000;
+	var vadStopAfterMin = +document.getElementById("vadStopAfterMin").value;	//read when a sequence ends, so a change applies right away
+	var vadEndSilence = +document.getElementById("vadEndSilence").value;		//VAD worker setup, applies on Create
 	
 	var doUseVolumeProcessor = document.getElementById("useVolumeProcessor").checked;
 	var volMeterOut = document.getElementById('volumeMeterNodeOutput');
@@ -840,7 +885,7 @@
 	useResampler(doUseResampler);
 	
 	var doUseWaveEncoder = document.getElementById("useWaveEncoder").checked;
-	var waveEncoderLookback = +document.getElementById("waveEncoderLookback").value; 	//e.g. 0;
+	var waveEncoderLookback = +document.getElementById("waveEncoderLookback").value; 	//e.g. 1000;
 	var waveEncoderRecordMax = +document.getElementById("waveEncoderRecordMax").value; 	//e.g. 6000;
 	var waveEncoderGate = document.getElementById('waveEncoderGateState');
 	var waveEncoderGateOpen = false;
@@ -881,6 +926,12 @@
 	}
 	function setWaveEncoderRecordMax(ele){
 		waveEncoderRecordMax = +ele.value;
+	}
+	function setVadStopAfterMin(ele){
+		vadStopAfterMin = +ele.value;
+	}
+	function setVadEndSilence(ele){
+		vadEndSilence = +ele.value;
 	}
 	function waveEncoderMessage(data){
 		console.error("wave-encoder", data);
@@ -934,6 +985,7 @@
 	var vadWorkerVadMode = 1;		//kept when the VAD changes, if the new one has that mode
 	//Same option, different meaning: WebRTC sets its aggressiveness, SEPIA
 	//picks the feature and the default threshold (sepia-vad-worker.js:51-55, :393-408, :462-466).
+	//Silero has one mode, its threshold is a speech probability.
 	var VAD_MODES = {
 		"webrtc-vad-worker": [
 			[0, "0 - least aggressive"],
@@ -945,9 +997,12 @@
 			[1, "1 - loudness, bark bands 1-5 (threshold 1.5)", 1.5],
 			[2, "2 - loudness, MFCC average (threshold 3.5)", 3.5],
 			[3, "3 - MFCC change, weighted (threshold 3.5)", 3.5]
+		],
+		"silero-vad-worker": [
+			[1, "1 - speech probability (threshold 0.5)", 0.5]
 		]
 	};
-	//Only the SEPIA VAD reads a threshold. The field shows the mode's default
+	//WebRTC reads no threshold. The field shows the mode's default
 	//so that it states the value the worker will use.
 	function updateVadThreshold(){
 		var mode = (VAD_MODES[vadWorkerName] || []).filter(function(m){ return m[0] == vadWorkerVadMode; })[0];
@@ -992,6 +1047,9 @@
 		}else{
 			document.getElementById("vadWorkerControls").style.display = "none";
 		}
+		//they sit with the wave encoder, whose recording they end, but only a VAD reads them
+		document.getElementById("vadEndSilence").disabled = !useIt;
+		document.getElementById("vadStopAfterMin").disabled = !useIt;
 	}
 	function setVadWorker(nuVadWorkerName){
 		useVadWorker(!!nuVadWorkerName);
@@ -1002,10 +1060,12 @@
 	}
 	//WebRTC needs 10, 20 or 30 ms frames (webrtc-vad-worker.js:95-105), 960 fits
 	//8, 16, 32 and 48 kHz. The SEPIA VAD uses 512 frames at 16 kHz and needs a
-	//multiple of a power of 2 otherwise (sepia-vad-worker.js:110-133).
+	//multiple of a power of 2 otherwise (sepia-vad-worker.js:110-133). Silero takes
+	//16 kHz only, in frames of 512.
 	var VAD_BUFFER_SIZES = {
 		"webrtc-vad-worker": 960,
-		"sepia-vad-worker": 512
+		"sepia-vad-worker": 512,
+		"silero-vad-worker": 512
 	};
 	function suggestVadBufferSize(workerName){
 		var size = VAD_BUFFER_SIZES[workerName];
@@ -1054,6 +1114,7 @@
 			ele.style.display = (engine == "sepia-kws")? "" : "none";
 		});
 		if (engine == "sepia-kws" && !kwsAvailableKeywords) loadKwsKeywords();
+		showKwsScoreLegend();
 	}
 
 	//SEPIA KWS (sepia-keyword-worker)
@@ -1126,6 +1187,38 @@
 		});
 		return selected;
 	}
+	//names the lines of the 'KWS Score' plot by the plot's own line colors
+	function showKwsScoreLegend(){
+		var legend = document.getElementById("chart5Legend");
+		legend.innerHTML = "";
+		var show = document.getElementById("usePlot5").checked && wakeWordEngine == "sepia-kws" && kwsAvailableKeywords;
+		legend.style.display = show? "" : "none";
+		if (!show) return;
+		var colors = (window.uPlot && uPlot.lazy && uPlot.lazy.colorPalette) || [];
+		kwsAvailableKeywords.forEach(function(kw, i){
+			var item = document.createElement("span");
+			item.textContent = "■ " + kw.name;
+			if (colors[i]) item.style.color = colors[i];
+			legend.appendChild(item);
+		});
+		var perf = document.createElement("span");
+		perf.id = "kwsPerformance";
+		legend.appendChild(perf);
+		kwsLastExposure = null;
+	}
+	//The exposure counts from the start of a run: the window time is taken over the last report,
+	//the windows behind for the whole run. A new run (e.g. another sensitivity) starts at 0 again.
+	var kwsLastExposure = null;
+	function showKwsPerformance(ex){
+		var last = (kwsLastExposure && kwsLastExposure.run == ex.run && ex.windows >= kwsLastExposure.windows)? kwsLastExposure : {windows: 0, score_ms: 0};
+		kwsLastExposure = ex;
+		var perf = document.getElementById("kwsPerformance");
+		var windows = ex.windows - last.windows;
+		if (!perf || !windows) return;
+		var msPerWindow = (ex.score_ms - last.score_ms) / windows;
+		perf.textContent = "| " + msPerWindow.toFixed(1) + " ms/window, " + ex.behind_windows + " windows behind";
+		perf.style.color = ex.behind_windows? "#e55" : "";
+	}
 	function setKwsSensitivity(level){
 		//applies right away while a processor runs, otherwise on the next create
 		if (wakeWordEngine == "sepia-kws" && window.wakeWordWorker && window.wakeWordWorker.handle){
@@ -1134,14 +1227,25 @@
 	}
 	function onKwsMessage(data){
 		if (!data) return;
-		if (data.moduleState == 1 && data.moduleInfo){
+		if (data.moduleEvent && data.kwsWindow){
+			//one line per available keyword, in the list's order: the plot keeps the number of
+			//lines of its first call, and each keyword keeps its color across 'Create's
+			if (!kwsAvailableKeywords) return;
+			var scores = data.kwsWindow.scores;
+			plotData(kwsAvailableKeywords.map(function(kw){
+				return (scores[kw.name] != undefined)? scores[kw.name] : 0;
+			}), 5, true);
+		}else if (data.moduleState == 1 && data.moduleInfo){
 			var mi = data.moduleInfo;
+			showKwsScoreLegend();
 			showLogMessage("SEPIA KWS - ready", {captureSampleRate: mi.captureSampleRate, resampling: mi.resampling,
 				inputIsFloat32: mi.inputIsFloat32, simd: mi.simd, wasmUrl: mi.wasmUrl, keywords: mi.keywords, sensitivity: mi.sensitivity, thresholds: mi.thresholds});
 		}else if (data.keyword){
 			showLogMessage("Wake-word detected", {keyword: data.keyword, score: data.score, threshold: data.threshold});
 		}else if (data.moduleEvent && data.kwsExposure){
 			var ex = data.kwsExposure;
+			showKwsPerformance(ex);
+			if (ex.reason == "periodic") return;		//every second, for the legend only
 			showLogMessage("SEPIA KWS - exposure", {reason: ex.reason, windows: ex.windows, listened_seconds: ex.listened_seconds,
 				ms_per_window: (ex.windows? Math.round(ex.score_ms / ex.windows * 100) / 100 : null), ms_max: ex.score_ms_max,
 				behind_windows: ex.behind_windows});

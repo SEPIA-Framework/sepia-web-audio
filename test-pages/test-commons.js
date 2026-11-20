@@ -35,7 +35,7 @@ function createFixedPlots(){
 		var plot = fixedPlots[i].graph.getPlot();
 		if (plot) plot.destroy();		//also drops its window listeners
 	});
-	[1, 2, 3, 4].forEach(function(i){
+	[1, 2, 3, 4, 5].forEach(function(i){
 		var container = document.getElementById("chart" + i);
 		if (container) container.innerHTML = "";
 	});
@@ -71,6 +71,14 @@ function createFixedPlots(){
 				fill: ["#ceff1a1a"]
 			})), 
 			use: (document.getElementById("usePlot4")? document.getElementById("usePlot4").checked : true)
+		},
+		5: {
+			graph: (new uPlot.lazy.AutoSeries(document.getElementById('chart5'), 150, {
+				rememberMax: true
+			}, {
+				showAxisX: false
+			})),
+			use: (document.getElementById("usePlot5")? document.getElementById("usePlot5").checked : true)
 		},
 	}
 	Object.keys(oldPlots).forEach(function(i){
@@ -121,6 +129,7 @@ usePlot(1, document.getElementById('usePlot1'));
 usePlot(2, document.getElementById('usePlot2'));
 usePlot(3, document.getElementById('usePlot3'));
 usePlot(4, document.getElementById('usePlot4'));
+usePlot(5, document.getElementById('usePlot5'));
 useHeatmap(1, document.getElementById('useHeatmap1'));
 
 function addTitleToPage(titleText){
@@ -148,6 +157,7 @@ function clearAllPlots(){
 	createFixedPlots();
 	createFixedHeatmaps();
 }
+var missingPlotWarned = {};
 function plotData(data, plotIndexOrParent, expandData){
 	var plotParentEle = undefined;
 	var plotIndex = undefined;
@@ -157,6 +167,12 @@ function plotData(data, plotIndexOrParent, expandData){
 		plotParentEle = plotIndexOrParent;
 	}
 	var p = (plotIndex != undefined)? fixedPlots[plotIndex] : undefined;
+	if (plotIndex != undefined && !p){
+		//a new graph per call would flood the page, e.g. with a page newer than this file
+		if (!missingPlotWarned[plotIndex]) console.warn("plotData - there is no fixed plot " + plotIndex);
+		missingPlotWarned[plotIndex] = true;
+		return;
+	}
 	if (p){
 		if (p.use){
 			if (expandData){
