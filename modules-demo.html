@@ -185,7 +185,7 @@
 			+ "Input Sample-Rate=" + info.inputSampleRate
 			+ " - Source-Type=" + info.sourceInfo.type;
 		console.log("onReady", info);
-		if (wakeWordEngine == "porcupine") showLogMessage("Available wake-words", window.porcupineWorker.settings.options.setup.keywords);
+		if (wakeWordEngine == "porcupine" && window.porcupineWorker) showLogMessage("Available wake-words", window.porcupineWorker.settings.options.setup.keywords);
 		//The library falls back to the device rate when the browser refuses
 		//the requested one, and the Speex switch then converts instead.
 		if (wakeWordEngine == "sepia-kws" && document.getElementById("kwsChainSelect").value == "C"
@@ -396,31 +396,34 @@
 		window.vadWorker = vadWorker;
 		var vadWorkerIndex;
 		
-		var porcupineWorker = {
-			name: 'porcupine-wake-word-worker',
-			type: 'worker',
-			preLoad: {
-				wasmFile: ('src/modules/picovoice/porcupine-' + (porcupineVersion > 19? (porcupineVersion + "_" + porcupineLanguage) : porcupineVersion) + '.wasm')
-			},
-			settings: {
-				onmessage: onWakeWordMessage,
-				//sendToModules: (doUseWaveEncoder? [waveEncoderIndex] : []),
-				options: {
-					setup: {
-						inputSampleRate: (doUseResampler? resamplerSampleRate : 0),
-						inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
-						bufferSize: resamplerBufferSize,		//TODO: this has no effect yet
-						version: porcupineVersion,
-						porcupineLanguage: "en",
-						porcupineAccessKey: document.getElementById("porcupineAccessKey").value,
-						keywords: (porcupineVersion == 14? ["Hey SEPIA"] : ["Computer", "Jarvis", "Picovoice"]),
-						sensitivities: (porcupineVersion == 14? [wakeWordSensitivity] : [wakeWordSensitivity, wakeWordSensitivity, wakeWordSensitivity]),
-						keywordsRemoteLocation: ""		
-						//can be used in combination with keyword names like ["Server: My Word"] for path like: [keywordsRemoteLocation]/2.0_en/keywords/[my_word]_wasm_20_en.js
+		var porcupineWorker;
+		if (wakeWordEngine == "porcupine"){
+			porcupineWorker = {
+				name: 'porcupine-wake-word-worker',
+				type: 'worker',
+				preLoad: {
+					wasmFile: moduleFile('picovoice/porcupine-' + (porcupineVersion > 19? (porcupineVersion + "_" + porcupineLanguage) : porcupineVersion) + '.wasm')
+				},
+				settings: {
+					onmessage: onWakeWordMessage,
+					//sendToModules: (doUseWaveEncoder? [waveEncoderIndex] : []),
+					options: {
+						setup: {
+							inputSampleRate: (doUseResampler? resamplerSampleRate : 0),
+							inputSampleSize: resamplerBufferSize,	//output bufferSize of previous module
+							bufferSize: resamplerBufferSize,		//TODO: this has no effect yet
+							version: porcupineVersion,
+							porcupineLanguage: "en",
+							porcupineAccessKey: document.getElementById("porcupineAccessKey").value,
+							keywords: (porcupineVersion == 14? ["Hey SEPIA"] : ["Computer", "Jarvis", "Picovoice"]),
+							sensitivities: (porcupineVersion == 14? [wakeWordSensitivity] : [wakeWordSensitivity, wakeWordSensitivity, wakeWordSensitivity]),
+							keywordsRemoteLocation: ""		
+							//can be used in combination with keyword names like ["Server: My Word"] for path like: [keywordsRemoteLocation]/2.0_en/keywords/[my_word]_wasm_20_en.js
+						}
 					}
 				}
-			}
-		};
+			};
+		}
 		window.porcupineWorker = porcupineWorker;
 
 		var kwsWorker;
@@ -432,11 +435,11 @@
 			}
 			//no wasmFile: the worker probes for WASM SIMD and fetches the matching build itself
 			var kwsPreLoad = {
-				modelFile: {type: 2, path: KWS_FOLDER + KWS_MODEL + ".kws"}
+				modelFile: {type: 2, path: moduleFile("sepia-kws/" + KWS_MODEL + ".kws")}
 			};
 			//every key that starts with 'prototypesFile' is one keyword
 			kwsKeywords.forEach(function(kw){
-				kwsPreLoad["prototypesFile_" + kw.name] = {type: 2, path: KWS_FOLDER + kw.file};
+				kwsPreLoad["prototypesFile_" + kw.name] = {type: 2, path: moduleFile("sepia-kws/" + kw.file)};
 			});
 			kwsWorker = {
 				name: 'sepia-keyword-worker',
@@ -1015,6 +1018,10 @@
 	}
 	setVadWorker(vadWorkerName);
 	
+	//preLoad paths and fetches resolve against the page, not against moduleFolder
+	function moduleFile(path){
+		return SepiaFW.webAudio.defaultProcessorOptions.moduleFolder.replace(/\/$/, "") + "/" + path;
+	}
 	var wakeWordEngine = document.getElementById("wakeWordEngineSelect").value;	//"", "porcupine" or "sepia-kws"
 	var wakeWordGate = document.getElementById('wakeWordGateState');
 	var wakeWordGateOpen = false;
@@ -1050,7 +1057,6 @@
 	}
 
 	//SEPIA KWS (sepia-keyword-worker)
-	var KWS_FOLDER = "src/modules/sepia-kws/";
 	var KWS_MODEL = "wdtcn-v4-s0-uno";
 	var kwsAvailableKeywords;
 	//Presets for the fields above. 'target' 0 is "Auto" (device rate).
@@ -1090,7 +1096,7 @@
 		}
 	}
 	function loadKwsKeywords(){
-		fetch(KWS_FOLDER + KWS_MODEL + ".keywords.json").then(function(res){
+		fetch(moduleFile("sepia-kws/" + KWS_MODEL + ".keywords.json")).then(function(res){
 			if (!res.ok) throw new Error("HTTP " + res.status);
 			return res.json();
 		}).then(function(json){
