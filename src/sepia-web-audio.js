@@ -3,7 +3,7 @@ if (!(typeof SepiaFW == "object")){
 }
 (function (parentModule){
 	var WebAudio = parentModule.webAudio || {};
-	WebAudio.version = "0.9.12";
+	WebAudio.version = "0.10.0";
 	
 	//Preparations
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
