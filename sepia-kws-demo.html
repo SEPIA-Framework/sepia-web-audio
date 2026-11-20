@@ -32,6 +32,16 @@
 			transition: background 0.6s;
 		}
 		#kwsDetection.hit { background: #ceff1a; transition: none; }
+		#kwsScores .kw { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+		#kwsScores .kw-name { width: 110px; overflow-wrap: anywhere; }
+		#kwsScores .kw-bar { position: relative; flex: 1; height: 16px; background: #eee; border: 1px solid #ccc; }
+		#kwsScores .kw-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: #9bb; }
+		#kwsScores .kw-fill.over { background: #d33; }
+		/* wider than the line they draw, so that a pointer can find the title */
+		#kwsScores .kw-tick { position: absolute; top: 0; bottom: 0; width: 7px; opacity: 0.35;
+			transform: translateX(-50%); background: linear-gradient(#000, #000) center / 1px 100% no-repeat; }
+		#kwsScores .kw-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #000; }
+		#kwsScores .kw-score { width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
 		#kwsInfo {
 			background: #f6f6f6;
 			border: 1px solid #ddd;
@@ -79,8 +89,8 @@
 			<option value="1">1 - very strict</option>
 			<option value="2">2 - strict</option>
 			<option value="3">3 - focused</option>
-			<option value="4" selected>4 - regular (calibrated)</option>
-			<option value="5">5 - loose</option>
+			<option value="4" selected>4 - regular (default)</option>
+			<option value="5">5 - permissive</option>
 		</select></div>
 	</div>
 
@@ -96,6 +106,16 @@
 		<div class="group"><label>State:</label><span id="kwsState">-</span></div>
 	</div>
 	<div id="kwsDetection">no detection yet</div>
+
+	<h2>Scores</h2>
+	<p class="note">Each bar shows the score of the latest window, the dark mark the threshold in
+	force and the faint ticks the thresholds of the five sensitivity levels (hover for the values).
+	A keyword without levels has no ticks. The bars apply on <b>Create</b>: without them the worker
+	sends no message per window.</p>
+	<div class="section">
+		<div class="group"><label>Score bars:</label><input id="kwsScoreBars" type="checkbox" checked></div>
+	</div>
+	<div id="kwsScores">-</div>
 
 	<h2>Module info</h2>
 	<div id="kwsInfo">-</div>
@@ -165,6 +185,9 @@
 	var detectionElement = document.getElementById("kwsDetection");
 	var infoElement = document.getElementById("kwsInfo");
 	var messagesElement = document.getElementById("messages");
+	var scoresElement = document.getElementById("kwsScores");
+	var scoreRows = [];			//one per keyword: its name, threshold and elements
+	var scoreBarsOn = false;	//whether the worker sends scores per window
 
 	//--- Log ---
 
@@ -220,6 +243,83 @@
 		return selected;
 	}
 
+	//--- Scores ---
+
+	//as the sensitivity menu names the levels, e.g. "3 - focused"
+	function sensitivityName(level){
+		var option = document.querySelector('#kwsSensitivity option[value="' + level + '"]');
+		return option? option.textContent : String(level);
+	}
+
+	//The levels that sit at threshold t; two levels can share one.
+	function levelsAt(levels, t){
+		if (!levels) return "";
+		return [1, 2, 3, 4, 5].filter(function(n){ return levels[n] === t; }).map(sensitivityName).join(", ");
+	}
+
+	function buildScoreRows(info){
+		scoresElement.innerHTML = "";
+		scoreRows = [];
+		scoreBarsOn = !!info.emitWindowScores;
+		info.keywords.forEach(function(name, i){
+			var threshold = info.thresholds[i];
+			var levels = (info.sensitivityLevels || [])[i];
+			var row = document.createElement("div");
+			row.className = "kw";
+			var label = document.createElement("span");
+			label.className = "kw-name";
+			label.textContent = name;
+			var bar = document.createElement("span");
+			bar.className = "kw-bar";
+			var fill = document.createElement("span");
+			fill.className = "kw-fill";
+			bar.appendChild(fill);
+			if (levels){
+				var drawn = {};
+				[1, 2, 3, 4, 5].forEach(function(n){
+					var t = levels[n];
+					if (typeof t != "number" || drawn[t]) return;
+					drawn[t] = true;
+					var tick = document.createElement("span");
+					tick.className = "kw-tick";
+					tick.style.left = (t * 100) + "%";
+					tick.title = "sensitivity " + levelsAt(levels, t) + ": " + t;
+					bar.appendChild(tick);
+				});
+			}
+			var mark = document.createElement("span");
+			mark.className = "kw-mark";
+			mark.style.left = (threshold * 100) + "%";
+			var named = levelsAt(levels, threshold);
+			mark.title = "threshold " + threshold + (named? ", sensitivity " + named : "");
+			bar.appendChild(mark);
+			var score = document.createElement("span");
+			score.className = "kw-score";
+			row.appendChild(label);
+			row.appendChild(bar);
+			row.appendChild(score);
+			scoresElement.appendChild(row);
+			scoreRows.push({name: name, threshold: threshold, fill: fill, score: score});
+		});
+		showScores(null);
+	}
+
+	//null empties the bars, e.g. while the gate is closed
+	function showScores(scores){
+		scoreRows.forEach(function(row){
+			var v = scores? scores[row.name] : undefined;
+			if (typeof v != "number"){
+				row.fill.style.width = "0";
+				row.fill.className = "kw-fill";
+				row.score.textContent = scoreBarsOn? "-" : "off";
+				return;
+			}
+			row.fill.style.width = (Math.max(0, Math.min(1, v)) * 100) + "%";
+			row.fill.className = "kw-fill" + (v >= row.threshold? " over" : "");
+			row.score.textContent = v.toFixed(4);
+		});
+	}
+
 	//--- Worker messages ---
 
 	function onSwitchMessage(data){
@@ -233,8 +333,12 @@
 
 	function onKwsMessage(data){
 		if (!data) return;
-		if (data.moduleState == 1 && data.moduleInfo){
+		if (data.moduleEvent && data.kwsWindow){
+			showScores(data.kwsWindow.scores);
+		//2: a changed sensitivity started a new run with other thresholds
+		}else if ((data.moduleState == 1 || data.moduleState == 2) && data.moduleInfo){
 			lastInfo.module = data.moduleInfo;
+			buildScoreRows(data.moduleInfo);
 			showInfo();
 		}else if (data.keyword){
 			addMessage("DETECTION", {keyword: data.keyword, score: data.score, threshold: data.threshold, at_seconds: data.at_seconds});
@@ -257,6 +361,7 @@
 			}
 		}else if (data.moduleEvent && data.gate){
 			addMessage("Gate", data.gate.isOpen? "open" : "closed");
+			if (!data.gate.isOpen) showScores(null);
 		}
 	}
 
@@ -390,7 +495,8 @@
 						bufferSize: bufferSize,
 						sendClips: false,
 						useRing: true,
-						sensitivity: sensitivity
+						sensitivity: sensitivity,
+						emitWindowScores: document.getElementById("kwsScoreBars").checked
 					}
 				}
 			}
@@ -401,6 +507,8 @@
 
 		lastInfo = {};
 		showInfo();
+		scoresElement.textContent = "-";
+		scoreRows = [];
 		setState("loading ...");
 		addMessage("Creating processor", {chain: chainId, rate: chain.rate, nativeResampling: chain.nativeResampling, wasm: wasmFile, keywords: keywords.map(function(k){ return k.name; })});
 
