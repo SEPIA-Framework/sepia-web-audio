@@ -55,7 +55,7 @@ onmessage = function(e) {
 		}else if (e.data.request.clear){
 			switch (e.data.request.clear){
 				case "buffer":
-					//TODO: clear buffer and release lookback lock
+					clearBuffer();
 					break;
 				default:
 					console.log("WaveEncoderWorker - Unknown request message:", e.data);
@@ -171,12 +171,15 @@ function gateControl(open, gateOptions){
 	};
 	if (open){
 		//TODO: we should reset some stuff here, for now:
+		//taken in every case: what the ring holds while appending is the gap
+		//between two parts and must not end up in a later recording
+		var lookback = takeLookback();
 		if (!gateOptions.appendAudio){
 			recordedBuffers = [];		//NOTE: by default we reset the buffer
-			recordedLookback = takeLookback();
+			recordedLookback = lookback;
 		}else if (recordBufferMaxN && recordedBuffers.length >= recordBufferMaxN){
 			recordedBuffers = [];
-			recordedLookback = takeLookback();
+			recordedLookback = lookback;
 		}
 		_gateOpenTS = Date.now();
 		gateIsOpen = true;
@@ -326,15 +329,15 @@ function ArrayTypeException(message) {
 
 function buildBuffer(start, end){
 	//TODO: use start, end
-	var isFloat32;
-	if (recordedBuffers[0]){
-		isFloat32 = (recordedBuffers[0] && recordedBuffers[0].constructor.name.indexOf("Float32") >= 0);
-		if (doDebug) console.error("WaveEncoderWorker - DEBUG - isFloat32", isFloat32, recordedBuffers[0].constructor.name);
-	}
+	var isFloat32 = isFloat32Input;		//'process' refuses samples of another type
 	var lookbackSamples = recordedLookback;
-	var dataLength = recordedBuffers.length * inputSampleSize + (lookbackSamples? lookbackSamples[0].length : 0);
+	//chunks can be shorter than 'inputSampleSize', e.g. the last one before a stop
+	var dataLength = (lookbackSamples? lookbackSamples[0].length : 0);
+	for (let j = 0; j < recordedBuffers.length; j++){
+		dataLength += recordedBuffers[j].length;
+	}
 	//TODO: any chance to allocate 'collectBuffer' in advance and keep it? (max. rec + lookback maybe?)
-	var collectBuffer = isFloat32? new Float32Array(dataLength) : new Int16Array(dataLength); 	//TODO: this is usually too big because the last buffer is not full ...
+	var collectBuffer = isFloat32? new Float32Array(dataLength) : new Int16Array(dataLength);
 	var n = 0;
 	if (lookbackSamples){
 		for (let i = 0; i < lookbackSamples[0].length; i++) {
@@ -348,7 +351,6 @@ function buildBuffer(start, end){
 			n++;
 		}
 	}
-	if (doDebug) console.error("WaveEncoderWorker - DEBUG - buffer mismatch", n, dataLength);	//TODO: why does this always match?
 	return {
 		buffer: collectBuffer,
 		isFloat32: isFloat32
