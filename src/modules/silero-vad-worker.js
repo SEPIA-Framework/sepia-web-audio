@@ -38,7 +38,8 @@ onmessage = function(e) {
 	}
 };
 
-const WASM_FILE = "./silero-vad/fluidvad_bg.wasm";		//relative to this worker
+const MODEL_PATH = "./silero-vad/";		//relative to this worker, holds '<model>.bin'
+const DEFAULT_MODEL = "silero-vad-16k-f16";	//"silero-vad-16k-f32": exact weights, twice the size
 const VAD_FRAME_SIZE = 512;		//Silero at 16 kHz takes exactly this, 32 ms
 
 let workerId = "silero-vad-worker-" + Math.round(Math.random() * 1000000) + "-" + Date.now();
@@ -51,6 +52,9 @@ let inputSampleSize;
 let processBufferSize;	//defines '_processRingBuffer' size together with 'inputSampleSize'
 let vadThreshold;		//speech probability (0..1) from which a frame counts as voice
 let isFloat32Input;		//default false
+let modelName;
+let modelInfo;
+let modelUrl;			//null if the weights came as preLoad 'modelFile'
 
 let voiceEnergy;
 let voiceEnergyCap = 50;
@@ -116,7 +120,11 @@ function ready(){
 			vadFrameTimeMs: _vadFrameTimeMs,
 			voiceEnergyCap: voiceEnergyCap,
 			voiceEnergyDropRate: voiceEnergyDropRate,
-			useSequenceAnalyzer: useSequenceAnalyzer
+			useSequenceAnalyzer: useSequenceAnalyzer,
+			model: modelName,
+			modelRelease: modelInfo.release,
+			modelDtype: modelInfo.dtype,
+			fetched: modelUrl
 		}
 	});
 }
@@ -139,6 +147,7 @@ function constructWorker(options) {
 	processBufferSize = options.setup.bufferSize || VAD_FRAME_SIZE;
 	vadThreshold = options.setup.vadThreshold || 0.5;
 	isFloat32Input = (options.setup.isFloat32 != undefined)? options.setup.isFloat32 : false;
+	modelName = options.setup.model || DEFAULT_MODEL;
 
 	if (options.setup.voiceEnergyCap != undefined) voiceEnergyCap = options.setup.voiceEnergyCap;
 	if (options.setup.voiceEnergyDropRate) voiceEnergyDropRate = options.setup.voiceEnergyDropRate;
@@ -155,22 +164,21 @@ function constructWorker(options) {
 
 	init();
 
-	//A wasmFile from a preLoad is used as given, e.g. one the page keeps in the preLoad cache.
+	//A modelFile from a preLoad is used as given and should fit 'setup.model', it is not checked.
 	var preLoads = options.preLoadResults || {};
-	var wasmReady = preLoads.wasmFile? Promise.resolve(preLoads.wasmFile)
-		: fetch(WASM_FILE).then(function(res){
-			if (!res.ok) throw new Error("HTTP " + res.status + " for '" + WASM_FILE + "'");
+	modelUrl = preLoads.modelFile? null : (MODEL_PATH + modelName + ".bin");
+	var modelReady = preLoads.modelFile? Promise.resolve(preLoads.modelFile)
+		: fetch(modelUrl).then(function(res){
+			if (!res.ok) throw new Error("HTTP " + res.status + " for '" + modelUrl + "'");
 			return res.arrayBuffer();
 		});
-	wasmReady.then(function(bytes){
-		return SileroVad.load(bytes);
-	}).then(function(){
+	modelReady.then(function(bytes){
+		modelInfo = SileroVad.load(bytes);
 		vadModule = new SileroVad.Vad();
 		if (doDebug) console.log("SileroVadModule - ready");		//DEBUG
 		ready();
 	}).catch(function(err){
-		sendError("VadModuleError", "Silero VAD could not be loaded: " + ((err && err.message) || err)
-			+ (typeof WebAssembly.validate == "function"? "" : " - no WebAssembly"));
+		sendError("VadModuleError", "Silero VAD could not be loaded: " + ((err && err.message) || err));
 	});
 }
 
@@ -295,9 +303,7 @@ function process(data) {
 		while (_processRingBuffer.framesAvailable >= VAD_FRAME_SIZE) {
 			_processRingBuffer.pull(_vadBuffer);
 
-			//FluidVad's own start/end events are not used: the sequence detector below times the voice
-			vadModule.push(_vadBuffer[0]);
-			var probability = vadModule.probability();
+			var probability = vadModule.process(_vadBuffer[0]);
 			var voiceActivity = (probability >= vadThreshold)? 1 : 0;
 			vadResults.push(voiceActivity);
 			vadProbabilities.push(probability);
@@ -346,7 +352,6 @@ function release(options){
 	_processRingBuffer = null;
 	_vadBuffer = null;
 	_float32InputBuffer = null;
-	if (vadModule) vadModule.free();
 	vadModule = null;
 	//notify processor that we can terminate now
 	postMessage({

@@ -78,7 +78,7 @@
 		<div><label>Resampler:</label><input type="checkbox" id="useResampler" checked onchange="useResampler(this.checked);"></div>
 		<div><label>Wave-encoder:</label><input type="checkbox" id="useWaveEncoder" checked onchange="useWaveEncoder(this.checked);"></div>
 		<div><label>VAD:</label><select id="vadWorkerSelect" onchange="setVadWorker(this.value);">
-			<option value="">off</option><option value="webrtc-vad-worker">WebRTC</option><option value="sepia-vad-worker">SEPIA + MFCC (Beta)</option><option value="silero-vad-worker" selected>Silero (FluidVad)</option>
+			<option value="">off</option><option value="webrtc-vad-worker">WebRTC</option><option value="sepia-vad-worker">SEPIA + MFCC (Beta)</option><option value="silero-vad-worker" selected>Silero</option>
 		</select></div>
 		<div><label>Wake-Word:</label><select id="wakeWordEngineSelect" onchange="setWakeWordEngine(this.value);">
 			<option value="" selected>off</option><option value="porcupine">Porcupine</option><option value="sepia-kws">SEPIA KWS</option>
@@ -417,6 +417,7 @@
 						bufferSize: vadWorkerBufferSize,
 						vadMode: vadWorkerVadMode,
 						vadThreshold: vadWorkerVadThreshold,
+						model: (vadWorkerName == "silero-vad-worker")? SILERO_MODELS[vadWorkerVadMode] : undefined,
 						//voiceEnergyCap: 50,
 						//voiceEnergyDropRate: 2,
 						sequence: {
@@ -565,8 +566,8 @@
 			debugLog: onDebugLog,
 			customSourceTest: useWhiteNoiseTest,
 			customSource: customSource,
-			//the KWS loads about 2 MB of model and WASM, Silero 5.5 MB and builds its model for about a second
-			initializerTimeout: ((wakeWordEngine == "sepia-kws" || (doUseVadWorker && vadWorkerName == "silero-vad-worker"))? 15000 : 8000)
+			//the KWS loads about 2 MB of model and WASM
+			initializerTimeout: ((wakeWordEngine == "sepia-kws")? 15000 : 8000)
 			
 		}, function(msg){
 			//Init. ready
@@ -980,7 +981,7 @@
 	var vadWorkerVadMode = 1;		//kept when the VAD changes, if the new one has that mode
 	//Same option, different meaning: WebRTC sets its aggressiveness, SEPIA
 	//picks the feature and the default threshold (sepia-vad-worker.js:51-55, :393-408, :462-466).
-	//Silero has one mode, its threshold is a speech probability.
+	//Silero's modes pick the weights file, its threshold is a speech probability.
 	var VAD_MODES = {
 		"webrtc-vad-worker": [
 			[0, "0 - least aggressive"],
@@ -994,9 +995,11 @@
 			[3, "3 - MFCC change, weighted (threshold 3.5)", 3.5]
 		],
 		"silero-vad-worker": [
-			[1, "1 - speech probability (threshold 0.5)", 0.5]
+			[1, "1 - speech probability, f16 weights (threshold 0.5)", 0.5],
+			[2, "2 - speech probability, f32 weights (threshold 0.5)", 0.5]
 		]
 	};
+	var SILERO_MODELS = {1: "silero-vad-16k-f16", 2: "silero-vad-16k-f32"};
 	//WebRTC reads no threshold. The field shows the mode's default
 	//so that it states the value the worker will use.
 	function updateVadThreshold(){

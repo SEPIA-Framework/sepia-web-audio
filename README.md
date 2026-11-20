@@ -11,6 +11,7 @@ Available modules:
 
 - **Resampler** using Speex codec (WASM module)
 - **Voice-Activity-Detection** (VAD) via WebRTC-VAD
+- **Silero VAD** (v6, plain JavaScript with the weights of the official ONNX model), a neural VAD giving a speech probability per 32 ms frame (16 kHz)
 - Custom SEPIA VAD module using Meyda to analyze bark-scale, **MFCC** and more
 - **Wave Encoder** with lookback-buffer
 - Porcupine **Wake-Word detector** (including: "Computer", "Jarvis", "Hey SEPIA" and more)
@@ -292,5 +293,8 @@ Please see [tutorial-code-page.html](tutorial-code-page.html#L267) part 3 to lea
 * [Meyda](https://github.com/meyda/meyda)
 * [Node Speex Resampler](https://github.com/geekuillaume/node-speex-resampler)
 * [pcm-convert](https://github.com/audiojs/pcm-convert)
+* [Porcupine](https://github.com/Picovoice/porcupine)
+* [Silero VAD](https://github.com/snakers4/silero-vad)
+* [uPlot](https://github.com/leeoniya/uPlot)
 * [uPlot Lazy Interface](https://github.com/bytemind-de/uPlot-lazy-interface)
 * [Freesound.org](https://freesound.org/)
