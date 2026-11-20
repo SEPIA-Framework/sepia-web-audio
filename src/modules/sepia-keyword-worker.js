@@ -9,9 +9,9 @@
  *
  * Three files ship together: this one, sepia-kws/kws-decision.js below
  * it and the .wasm. KWS_VERSION below is how a mixed copy is
- * told. The model arrives separately, as a pre-load. The .wasm may too;
- * without one the worker fetches the build this browser can run from
- * sepia-kws/ itself.
+ * told. The model, the keywords and the .wasm may arrive as pre-loads;
+ * whatever the host does not give, the worker fetches from sepia-kws/
+ * itself, by the names in its setup.
  *
  * The division of labour with the WASM is deliberate and load-bearing.
  * The module is a pure function - 35 200 samples in, three cosines out -
@@ -35,7 +35,7 @@
  * side, reported in moduleInfo.version and not refused. A file with no
  * number predates them and is reported as null.
  */
-const KWS_VERSION = "0.1.1";
+const KWS_VERSION = "0.1.2";
 let versions = null;            // {worker, decision, wasm}, once loaded
 
 /* The decision layer lives in sepia-kws/kws-decision.js, because the
@@ -62,7 +62,16 @@ const SIMD_PROBE = new Uint8Array([
 ]);
 const browserSimd = typeof WebAssembly.validate === "function"
     ? WebAssembly.validate(SIMD_PROBE) : null;
-let wasmUrl = null;             // where the worker fetched it, null if given
+
+/* The model the worker runs when the setup names none. js/kws-settings.js
+ * holds the repository's default, KWS_DEFAULT_MODEL, and
+ * tests/test_version.mjs holds this one to it. */
+const KWS_DEFAULT_MODEL = "wdtcn-v4-s0-uno";
+// Where the worker finds what it fetches, relative to its own URL: the
+// package's layout, and the repository's js/sepia-kws/ for the scripts.
+const KWS_FOLDER = "./sepia-kws/";
+// What the worker fetched itself, by URL, and null for what it was given.
+let fetchedFiles = null;
 
 const workerId = "sepia-keyword-worker-"
     + Math.round(Math.random() * 1000000) + "-" + Date.now();
@@ -593,9 +602,10 @@ function moduleInfo() {
             // under the SIMD name runs 1.6x slower and looks identical
             // from outside.
             simd: api.kws_has_simd ? !!api.kws_has_simd() : null,
-            // Where the worker fetched the module, or null when the host
-            // gave it.
-            wasmUrl: wasmUrl,
+            // What the worker fetched itself, by URL: the keyword list,
+            // the module, the model and the enrollments. null for what
+            // the host gave as a pre-load.
+            fetched: fetchedFiles,
             // What the front end is actually doing, read back out of the
             // module. A build without the switches reports false for
             // both and is 1.8x slower, which is otherwise invisible -
@@ -927,6 +937,202 @@ function copyRange(dest, startSample, length) {
 
 // --- construction -------------------------------------------------------
 
+/* A name that may become part of a file name: no path, no "..". */
+function isPlainName(name) {
+    return typeof name === "string" && /^[\w.-]+$/.test(name) && !/^\.+$/.test(name);
+}
+
+/* A keyword as a setup may write it - "Hey SEPIA" - to the name files
+ * use: lower case, white space as "_". */
+function keywordFileName(name) {
+    return String(name).trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+/* The JSON header of a .kws or .kwsp (FORMAT.md, "The container"), or
+ * null when the bytes are not that file. */
+function readHeader(bytes, magic) {
+    const b = new Uint8Array(bytes);
+    if (b.length < 8 || String.fromCharCode(b[0], b[1], b[2], b[3]) !== magic) return null;
+    const length = new DataView(b.buffer, b.byteOffset, 8).getUint32(4, true);
+    try {
+        return JSON.parse(new TextDecoder().decode(b.subarray(8, 8 + length)));
+    } catch (err) {
+        return null;
+    }
+}
+
+/* An error the setup caused, said in the words of the setup. */
+function setupError(message) {
+    const err = new Error(message);
+    err.kwsName = "KeywordSetupException";
+    err.kwsMessage = message;
+    return err;
+}
+
+function fetchBytes(url, what) {
+    return fetch(url).then(function (response) {
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.arrayBuffer();
+    }).catch(function (err) {
+        err.kwsStatus = err.kwsStatus || String(err && err.message || err);
+        err.kwsMessage = "could not fetch " + what + " from '" + url + "': "
+            + err.kwsStatus;
+        throw err;
+    });
+}
+
+/*
+ * The model and the enrollments the setup asks for: from the pre-loads
+ * where the host gave them, fetched from sepia-kws/ where it did not.
+ * The names say what runs, the pre-loads only where the bytes come from.
+ *
+ * - The model is setup.model, or the one the given modelFile says it is,
+ *   or KWS_DEFAULT_MODEL. A setup.model the given file contradicts is
+ *   refused: nothing can say which of the two was meant.
+ * - The keywords are setup.keywords, written as a setup may write them.
+ *   Each is looked up in <model>.keywords.json, and one not listed there
+ *   is the file <model>.<name>.kwsp - which is how a file of one's own
+ *   is dropped in without editing the list. Without setup.keywords the
+ *   list's "default" runs, or every listed word for a list without one.
+ * - Given enrollments are chosen from by the names inside them, all of
+ *   them when setup.keywords is left out.
+ *
+ * Two enrollments of one name are refused here, by their headers, before
+ * the module sees either.
+ */
+function gatherFiles(setup, givenModel, givenProtos) {
+    const fetched = { list: null, wasm: null, model: null, keywords: null };
+    const asked = setup.keywords === undefined || setup.keywords === null ? null
+        : (Array.isArray(setup.keywords) ? setup.keywords : [setup.keywords])
+            .map(keywordFileName);
+    if (asked && !asked.length) {
+        return Promise.reject(setupError("setup.keywords is empty; leave it "
+            + "out for the model's default keywords"));
+    }
+    const badName = asked && asked.filter((n) => !isPlainName(n))[0];
+    if (badName !== undefined && badName !== null) {
+        return Promise.reject(setupError("keyword '" + badName + "' is not a "
+            + "name a file can have: letters, digits, '_', '.' and '-' only"));
+    }
+
+    let modelName = setup.model === undefined || setup.model === null
+        ? null : String(setup.model);
+    if (modelName !== null && !isPlainName(modelName)) {
+        return Promise.reject(setupError("setup.model '" + modelName + "' is not "
+            + "a model's file name: letters, digits, '_', '.' and '-' only"));
+    }
+    if (givenModel) {
+        const header = readHeader(givenModel, "KWS1");
+        const inFile = header && header.model_name;
+        if (modelName && inFile && inFile !== modelName) {
+            return Promise.reject(setupError("setup.model asks for '" + modelName
+                + "', and the modelFile given is '" + inFile + "'"));
+        }
+        modelName = modelName || inFile;
+    }
+    modelName = modelName || KWS_DEFAULT_MODEL;
+
+    const modelReady = givenModel ? Promise.resolve(givenModel)
+        : fetchBytes(fetched.model = KWS_FOLDER + modelName + ".kws",
+                     "the model '" + modelName + "'");
+    // A refusal below can return before this is waited on; its own
+    // failure is then not the one worth reporting.
+    modelReady.catch(function () {});
+
+    let protosReady;
+    if (givenProtos) {
+        const files = Array.isArray(givenProtos) ? givenProtos : [givenProtos];
+        let chosen = files;
+        if (asked) {
+            const named = files.map(function (f) {
+                const h = readHeader(f, "KWSP");
+                return h && h.keywords ? h.keywords.map((k) => k.name) : [];
+            });
+            const offered = [].concat.apply([], named);
+            const missing = asked.filter((n) => offered.indexOf(n) < 0);
+            if (missing.length) {
+                return Promise.reject(setupError("no keyword '" + missing[0]
+                    + "' among the enrollments given; they hold "
+                    + offered.join(", ")));
+            }
+            const split = named.filter((names) => names.some((n) => asked.indexOf(n) >= 0)
+                && names.some((n) => asked.indexOf(n) < 0))[0];
+            if (split) {
+                return Promise.reject(setupError("one enrollment given holds "
+                    + split.join(", ") + " together; setup.keywords can take "
+                    + "all of them or none"));
+            }
+            chosen = files.filter((f, i) => named[i].some((n) => asked.indexOf(n) >= 0));
+        }
+        protosReady = Promise.resolve(chosen);
+    } else {
+        const listUrl = KWS_FOLDER + modelName + ".keywords.json";
+        // The list is needed for the default and read for the file names;
+        // without one, asked keywords go by the naming convention alone.
+        protosReady = fetchBytes(listUrl, "the keyword list of '" + modelName + "'")
+            .then(function (bytes) {
+                fetched.list = listUrl;
+                try {
+                    return JSON.parse(new TextDecoder().decode(new Uint8Array(bytes)));
+                } catch (err) {
+                    throw setupError(listUrl + " is not JSON: " + err.message);
+                }
+            }, function (err) {
+                if (!asked) throw err;
+                return null;
+            }).then(function (list) {
+                const listed = list && Array.isArray(list.keywords) ? list.keywords : [];
+                const names = listed.map((k) => k.name);
+                const wanted = asked || (list && Array.isArray(list.default)
+                    ? list.default.map(keywordFileName) : names);
+                if (!wanted.length) {
+                    throw setupError(listUrl + " lists no keywords");
+                }
+                const urls = wanted.map(function (n) {
+                    const entry = listed.filter((k) => k.name === n)[0];
+                    if (!entry && !asked) {
+                        throw setupError(listUrl + " names '" + n + "' as a default "
+                            + "but lists no such keyword; it lists " + names.join(", "));
+                    }
+                    const file = entry ? entry.file : modelName + "." + n + ".kwsp";
+                    if (!isPlainName(file)) {
+                        throw setupError(listUrl + " names '" + file + "', which is "
+                            + "not a plain file name");
+                    }
+                    return { name: n, url: KWS_FOLDER + file, listed: !!entry };
+                });
+                fetched.keywords = urls.map((u) => u.url);
+                return Promise.all(urls.map(function (u) {
+                    return fetchBytes(u.url, "keyword '" + u.name + "'")
+                        .catch(function (err) {
+                            if (!u.listed && /^HTTP 404/.test(err.kwsStatus)) {
+                                throw setupError("no keyword '" + u.name + "' for '"
+                                    + modelName + "': " + (list ? "not in " + listUrl
+                                    + " (" + names.join(", ") + ")" : "no " + listUrl)
+                                    + ", and no file " + u.url);
+                            }
+                            throw err;
+                        });
+                }));
+            });
+    }
+
+    return Promise.all([modelReady, protosReady]).then(function (both) {
+        const seen = {};
+        both[1].forEach(function (f) {
+            const h = readHeader(f, "KWSP");
+            (h && h.keywords || []).forEach(function (k) {
+                if (seen[k.name]) {
+                    throw setupError("two enrollments are both named '" + k.name
+                        + "'; one keyword can run once");
+                }
+                seen[k.name] = true;
+            });
+        });
+        return { model: both[0], prototypes: both[1], fetched: fetched };
+    });
+}
+
 function constructWorker(options) {
     if (wasConstructed) {
         console.error("KeywordWorker: constructor called twice, second ignored");
@@ -1024,7 +1230,7 @@ function constructWorker(options) {
         || setup.sensitivity === null ? null : Number(setup.sensitivity);
 
     const givenWasm = preLoads.wasmFile || preLoads.wasm;
-    const modelBytes = preLoads.modelFile || preLoads.model;
+    const givenModel = preLoads.modelFile || preLoads.model;
     // The enrollments: one prototype per keyword and the thresholds that
     // go with it, in as many .kwsp files as there are. A list from a page
     // that fetched them itself; or from a preLoad, which delivers one file
@@ -1033,22 +1239,9 @@ function constructWorker(options) {
     const declared = Object.keys(preLoads)
         .filter((k) => /^prototypesFile(?!s$)/.test(k) && preLoads[k])
         .map((k) => preLoads[k]);
-    const protoBytes = preLoads.prototypesFiles
+    const givenProtos = preLoads.prototypesFiles
         || (declared.length ? declared : null);
-    if (!modelBytes) {
-        sendError("KeywordModuleException",
-            "No model. Declare preLoad: {modelFile: {type: 2, path: '<url>/*.kws'}}.");
-        return;
-    }
-    if (!protoBytes) {
-        sendError("KeywordModuleException",
-            "No enrollment. Declare preLoad: {prototypesFile: {type: 2, "
-            + "path: '<url>/*.kwsp'}}, one such key per file, or pass "
-            + "prototypesFiles, a list. "
-            + "Without prototypes the module can embed audio but has "
-            + "nothing to compare it with.");
-        return;
-    }
+    let modelBytes = null, protoBytes = null;
 
     // A build the host chose is used as given. If it does not validate
     // where the probe did not either, the reason is known and worth
@@ -1063,24 +1256,23 @@ function constructWorker(options) {
     // Without one, the build this browser can run, from beside the
     // scripts the worker already loads. Fetched per worker; a host that
     // wants it held across workers in its preLoadCache gives wasmFile.
-    wasmUrl = givenWasm ? null : "./sepia-kws/" + (browserSimd
+    const wasmUrl = givenWasm ? null : KWS_FOLDER + (browserSimd
         ? "sepia-keyword.wasm" : "sepia-keyword-scalar.wasm");
     const wasmReady = givenWasm ? Promise.resolve(givenWasm)
-        : fetch(wasmUrl).then(function (response) {
-            if (!response.ok) throw new Error("HTTP " + response.status);
-            return response.arrayBuffer();
-        }).catch(function (err) {
-            err.kwsMessage = "could not fetch the module from '" + wasmUrl
-                + "': " + String(err && err.message || err)
-                + ". Declare preLoad: {wasmFile: '<url>/sepia-keyword.wasm'} "
-                + "if it lives elsewhere.";
-            throw err;
-        });
+        : fetchBytes(wasmUrl, "the module");
 
-    // Instantiating is async, and everything after it depends on numbers
-    // that only exist once the model is parsed, so the rest lives in here.
-    wasmReady.then(function (wasmBytes) {
-        return WebAssembly.instantiate(wasmBytes, {});
+    // Everything is fetched at once; what is missing elsewhere is said
+    // with its path, and a pre-load is how a file that lives elsewhere is
+    // given. Instantiating is async too, and everything after it depends
+    // on numbers that only exist once the model is parsed, so the rest
+    // lives in here.
+    Promise.all([wasmReady, gatherFiles(setup, givenModel, givenProtos)])
+    .then(function (ready) {
+        modelBytes = ready[1].model;
+        protoBytes = ready[1].prototypes;
+        fetchedFiles = ready[1].fetched;
+        fetchedFiles.wasm = wasmUrl;
+        return WebAssembly.instantiate(ready[0], {});
     }).then(function (result) {
         try {
             api = result.instance ? result.instance.exports : result.exports;
@@ -1190,7 +1382,7 @@ function constructWorker(options) {
             else sendError("KeywordModuleException", String(err && err.message || err));
         }
     }).catch(function (err) {
-        sendError("KeywordModuleException", err && err.kwsMessage
+        sendError(err && err.kwsName || "KeywordModuleException", err && err.kwsMessage
             || "WebAssembly.instantiate failed: " + String(err && err.message || err),
             String(err));
     });

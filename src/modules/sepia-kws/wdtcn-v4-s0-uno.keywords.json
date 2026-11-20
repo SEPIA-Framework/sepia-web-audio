@@ -14,5 +14,8 @@
    "name": "hey_sepia",
    "file": "wdtcn-v4-s0-uno.hey_sepia.kwsp"
   }
+ ],
+ "default": [
+  "hey_sepia"
  ]
 }

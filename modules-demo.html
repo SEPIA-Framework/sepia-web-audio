@@ -470,18 +470,11 @@
 				onProcessorInitError({name: "SEPIA KWS", message: "Select at least one keyword"});
 				return;
 			}
-			//no wasmFile: the worker probes for WASM SIMD and fetches the matching build itself
-			var kwsPreLoad = {
-				modelFile: {type: 2, path: moduleFile("sepia-kws/" + KWS_MODEL + ".kws")}
-			};
-			//every key that starts with 'prototypesFile' is one keyword
-			kwsKeywords.forEach(function(kw){
-				kwsPreLoad["prototypesFile_" + kw.name] = {type: 2, path: moduleFile("sepia-kws/" + kw.file)};
-			});
+			//No pre-loads: from these names the worker fetches the model, the keywords and the
+			//WASM build for this browser itself, from 'sepia-kws/' beside it.
 			kwsWorker = {
 				name: 'sepia-keyword-worker',
 				type: 'worker',
-				preLoad: kwsPreLoad,
 				settings: {
 					onmessage: onKwsMessage,
 					options: {
@@ -493,6 +486,8 @@
 							bufferSize: resamplerBufferSize,
 							sendClips: false,
 							useRing: true,
+							model: KWS_MODEL,
+							keywords: kwsKeywords.map(function(kw){ return kw.name; }),
 							sensitivity: +document.getElementById("kwsSensitivity").value,
 							emitWindowScores: true,		//for the 'KWS Score' plot, about 10 messages a second
 							exposureEverySeconds: 1		//timing for the plot's legend, counted in audio seconds
@@ -1162,6 +1157,8 @@
 			return res.json();
 		}).then(function(json){
 			kwsAvailableKeywords = json.keywords || [];
+			//the list's own default is preselected, all of them for a list without one, as the worker does
+			var defaults = Array.isArray(json["default"])? json["default"] : null;
 			var box = document.getElementById("kwsKeywords");
 			box.innerHTML = "";
 			kwsAvailableKeywords.forEach(function(kw){
@@ -1169,7 +1166,7 @@
 				label.textContent = kw.name;
 				var cb = document.createElement("input");
 				cb.type = "checkbox";
-				cb.checked = true;
+				cb.checked = !defaults || defaults.indexOf(kw.name) >= 0;
 				cb.value = kw.name;
 				box.appendChild(label);
 				box.appendChild(cb);
@@ -1239,7 +1236,7 @@
 			var mi = data.moduleInfo;
 			showKwsScoreLegend();
 			showLogMessage("SEPIA KWS - ready", {captureSampleRate: mi.captureSampleRate, resampling: mi.resampling,
-				inputIsFloat32: mi.inputIsFloat32, simd: mi.simd, wasmUrl: mi.wasmUrl, keywords: mi.keywords, sensitivity: mi.sensitivity, thresholds: mi.thresholds});
+				inputIsFloat32: mi.inputIsFloat32, simd: mi.simd, fetched: mi.fetched, keywords: mi.keywords, sensitivity: mi.sensitivity, thresholds: mi.thresholds});
 		}else if (data.keyword){
 			showLogMessage("Wake-word detected", {keyword: data.keyword, score: data.score, threshold: data.threshold});
 		}else if (data.moduleEvent && data.kwsExposure){

@@ -217,6 +217,8 @@
 			return res.json();
 		}).then(function(json){
 			availableKeywords = json.keywords || [];
+			//the list's own default is preselected, all of them for a list without one, as the worker does
+			var defaults = Array.isArray(json["default"])? json["default"] : null;
 			var box = document.getElementById("kwsKeywords");
 			box.innerHTML = "";
 			availableKeywords.forEach(function(kw){
@@ -224,7 +226,7 @@
 				label.textContent = kw.name;
 				var cb = document.createElement("input");
 				cb.type = "checkbox";
-				cb.checked = true;
+				cb.checked = !defaults || defaults.indexOf(kw.name) >= 0;
 				cb.value = kw.name;
 				box.appendChild(label);
 				box.appendChild(cb);
@@ -397,6 +399,7 @@
 				+ " | sensitivity: " + mi.sensitivity
 				+ " | thresholds: " + JSON.stringify(mi.thresholds));
 			lines.push("model: " + JSON.stringify(mi.model));
+			lines.push("fetched by the worker (null: pre-loaded): " + JSON.stringify(mi.fetched));
 			lines.push("version: " + JSON.stringify(mi.version));
 		}
 		if (lastInfo.thresholds){
@@ -444,16 +447,16 @@
 		});
 		SepiaFW.webAudio.setDefaultAudioConstraints(micProcessing);
 
-		//optional: a given wasmFile is used as is (see SIMD_PROBE above)
+		//Optional: the worker fetches both itself from 'setup.model' (see modules-demo.html). Given
+		//here, the library fetches them once and keeps them in its preLoadCache for later 'Create's.
+		//The wasmFile is used as is (see SIMD_PROBE above), and a modelFile that is not 'setup.model'
+		//is refused.
+		//The keywords' files are fetched by the worker, by name.
 		var wasmFile = hasWasmSimd? "sepia-keyword.wasm" : "sepia-keyword-scalar.wasm";
 		var preLoad = {
 			wasmFile: KWS_FOLDER + wasmFile,
 			modelFile: {type: 2, path: KWS_FOLDER + MODEL + ".kws"}
 		};
-		//every key that starts with 'prototypesFile' is one keyword
-		keywords.forEach(function(kw){
-			preLoad["prototypesFile_" + kw.name] = {type: 2, path: KWS_FOLDER + kw.file};
-		});
 
 		//A and B keep the context at the device rate so that B really measures
 		//speexdsp. C asks the browser for 16 kHz. The library remembers for the
@@ -495,6 +498,8 @@
 						bufferSize: bufferSize,
 						sendClips: false,
 						useRing: true,
+						model: MODEL,
+						keywords: keywords.map(function(kw){ return kw.name; }),
 						sensitivity: sensitivity,
 						emitWindowScores: document.getElementById("kwsScoreBars").checked
 					}
