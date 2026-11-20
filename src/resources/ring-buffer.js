@@ -47,6 +47,8 @@ class RingBuffer {
 
   /**
    * Push a sequence of Arrays to buffer.
+   * On overrun the oldest frames are overwritten and the next pull starts at the
+   * oldest frame left. Of a sequence longer than the buffer only the last frames are kept.
    *
    * @param  {array} arraySequence A sequence of Arrays.
    * @param  {function} customTransform A function of (array, channel, index) to transform the input during push (or null).
@@ -54,69 +56,77 @@ class RingBuffer {
   push(arraySequence, customTransform) {
     // The channel count of arraySequence and the length of each channel must
     // match with this buffer obejct.
-
-    // Transfer data from the |arraySequence| storage to the internal buffer.
     let sourceLength = arraySequence[0].length;
-	let transform = customTransform || function(thisArray, channel, i){
-		return thisArray[channel][i];
-	}
-    for (let i = 0; i < sourceLength; ++i) {
-      let writeIndex = (this._writeIndex + i) % this._length;
-      for (let channel = 0; channel < this._channelCount; ++channel) {
-        this._channelData[channel][writeIndex] = transform(arraySequence, channel, i);
+    if (!sourceLength) return;
+    let skip = Math.max(0, sourceLength - this._length);
+    let frames = sourceLength - skip;
+    let start = (this._writeIndex + skip) % this._length;
+    //split parts for faster assign
+    let part1 = Math.min(frames, this._length - start);
+    let part2 = frames - part1;
+    for (let channel = 0; channel < this._channelCount; ++channel) {
+      let source = arraySequence[channel];
+      let target = this._channelData[channel];
+      if (!customTransform && ArrayBuffer.isView(source)) {
+        target.set(source.subarray(skip, skip + part1), start);
+        if (part2 > 0) target.set(source.subarray(skip + part1, skip + frames), 0);
+      } else {
+        let transform = customTransform || function(thisArray, channel, i){
+          return thisArray[channel][i];
+        }
+        for (let i = 0; i < frames; ++i) {
+          target[(start + i) % this._length] = transform(arraySequence, channel, skip + i);
+        }
       }
     }
+    this._writeIndex = (start + frames) % this._length;
 
-    this._writeIndex += sourceLength;
-    if (this._writeIndex >= this._length) {
-      this._writeIndex = this._writeIndex - this._length;
-    }
-
-    // For excessive frames, the buffer will be overwritten.
-    this._framesAvailable += sourceLength;
-    if (this._framesAvailable > this._length) {
+    if (this._framesAvailable + sourceLength >= this._length) {
       this._framesAvailable = this._length;
+      this._readIndex = this._writeIndex;
+    } else {
+      this._framesAvailable += sourceLength;
     }
   }
 
   /**
    * Pull data out of buffer and fill a given sequence of Arrays.
+   * If the buffer holds fewer frames than requested, the rest is filled with silence (zeros).
    *
    * @param  {array} arraySequence An array of Arrays.
    * @param  {function} customTransform A function of (array, channel, index) to transform the output during pull (or null).
+   * @return {number} Frames actually read.
    */
   pull(arraySequence, customTransform) {
     // The channel count of arraySequence and the length of each channel must
     // match with this buffer obejct.
-
-    // If the FIFO is completely empty, do nothing.
-    if (this._framesAvailable === 0) {
-      return;
-    }
-
     let destinationLength = arraySequence[0].length;
-	let that = this;
-	let transform = customTransform || function(thisArray, channel, i){
-		return thisArray[channel][i];
-	}
-
-    // Transfer data from the internal buffer to the |arraySequence| storage.
-    for (let i = 0; i < destinationLength; ++i) {
-      let readIndex = (this._readIndex + i) % this._length;
-      for (let channel = 0; channel < this._channelCount; ++channel) {
-        arraySequence[channel][i] = transform(this._channelData, channel, readIndex);
+    let available = Math.min(destinationLength, this._framesAvailable);
+    //split parts for faster assign
+    let part1 = Math.min(available, this._length - this._readIndex);
+    let part2 = available - part1;
+    for (let channel = 0; channel < this._channelCount; ++channel) {
+      let source = this._channelData[channel];
+      let target = arraySequence[channel];
+      if (!customTransform && ArrayBuffer.isView(target)) {
+        target.set(source.subarray(this._readIndex, this._readIndex + part1), 0);
+        if (part2 > 0) target.set(source.subarray(0, part2), part1);
+        target.fill(0, available, destinationLength);
+      } else {
+        let transform = customTransform || function(thisArray, channel, i){
+          return thisArray[channel][i];
+        }
+        for (let i = 0; i < available; ++i) {
+          target[i] = transform(this._channelData, channel, (this._readIndex + i) % this._length);
+        }
+        for (let i = available; i < destinationLength; ++i) {
+          target[i] = 0;
+        }
       }
     }
-
-    this._readIndex += destinationLength;
-    if (this._readIndex >= this._length) {
-      this._readIndex = this._readIndex - this._length;
-    }
-
-    this._framesAvailable -= destinationLength;
-    if (this._framesAvailable < 0) {
-      this._framesAvailable = 0;
-    }
+    this._readIndex = (this._readIndex + available) % this._length;
+    this._framesAvailable -= available;
+    return available;
   }
 };
 /*

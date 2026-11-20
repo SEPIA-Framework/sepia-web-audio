@@ -18,26 +18,31 @@ class ZeroPaddingRingBuffer {
 	get channelCount() { return this._channelData.length; }
 
 	push(data) {
-		const frames = data[0].length;
-
-		//overrun: move read-index
-		const overflow = Math.max(0, (this._framesAvailable + frames) - this._length);
-		if (overflow > 0) {
-			this._readIndex = (this._readIndex + overflow) % this._length;
-			this._framesAvailable -= overflow;
-		}
+		//of a chunk longer than the buffer only the last frames are kept
+		const total = data[0].length;
+		if (!total) return;
+		const skip = Math.max(0, total - this._length);
+		const frames = total - skip;
+		const start = (this._writeIndex + skip) % this._length;
 
 		//split parts for faster assign
-		const part1 = Math.min(frames, this._length - this._writeIndex);
+		const part1 = Math.min(frames, this._length - start);
 		const part2 = frames - part1;
 		for (let c = 0; c < this._channelData.length; c++) {
-			this._channelData[c].set(data[c].subarray(0, part1), this._writeIndex);
+			this._channelData[c].set(data[c].subarray(skip, skip + part1), start);
 			if (part2 > 0) {
-				this._channelData[c].set(data[c].subarray(part1), 0);
+				this._channelData[c].set(data[c].subarray(skip + part1, skip + frames), 0);
 			}
 		}
-		this._writeIndex = (this._writeIndex + frames) % this._length;
-		this._framesAvailable = Math.min(this._framesAvailable + frames, this._length);
+		this._writeIndex = (start + frames) % this._length;
+
+		//overrun: the oldest frames were overwritten, read from the oldest one left
+		if (this._framesAvailable + total >= this._length) {
+			this._framesAvailable = this._length;
+			this._readIndex = this._writeIndex;
+		} else {
+			this._framesAvailable += total;
+		}
 	}
 
 	pull(output, frames) {
