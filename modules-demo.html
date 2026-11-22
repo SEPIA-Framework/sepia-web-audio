@@ -53,11 +53,11 @@
 	</div>
 	<p class="applyNote">While a pipeline is active, fields with a green outline apply right away, all others apply on the next 'Create'.</p>
 	<div id="inputSourceOptions" class="contorlGroup center">
-		<div><label>Target Sample-Rate:</label><select id="sampleRateSelector">
+		<div><label title="The rate the browser is asked for, for the audio context and the microphone. Auto: none is given, the context runs at the browser's default and the library asks the microphone for its own default.">Capture Sample-Rate:</label><select id="sampleRateSelector">
 			<option value="" selected>Auto</option>
 			<option value="8000">8000</option>
 			<option value="16000">16000</option>
-			<option value="44000">44100</option>
+			<option value="44100">44100</option>
 			<option value="48000">48000</option>
 			<option value="96000">96000</option>
 		</select></div>
@@ -99,7 +99,7 @@
 	<div id="resamplerControls" class="contorlGroup">
 		<h3>Resampler (Speex WASM)</h3>
 		<p class="moduleIntro">Converts the audio to the target sample rate with speexdsp and passes it on in chunks of 'Buffer-Size' samples to the modules after it.</p>
-		<div><label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000"></div>
+		<div><label>Target Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000"></div>
 		<div><label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512" onchange="setResamplerBufferSize(this);" placeholder="512"></div>
 		<div><label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)"></div>
 		<div id="resamplerGainBox" class="slidecontainer" style="display: none;">
@@ -207,8 +207,11 @@
 		showLogMessage("onReady", info);
 		if (info.sourceInfo.label) showLogMessage("onReady details: sourceInfo.label", info.sourceInfo.label);
 		if (info.sourceInfo.settings) showLogMessage("onReady details: sourceInfo.settings", info.sourceInfo.settings);
+		var micSampleRate;
+		try { micSampleRate = rec.source.mediaStream.getAudioTracks()[0].getSettings().sampleRate; }catch (err){}
 		infoElement.textContent = "Info: " 
 			+ "Input Sample-Rate=" + info.inputSampleRate
+			+ " - Mic Sample-Rate=" + (micSampleRate || "n/a")
 			+ " - Source-Type=" + info.sourceInfo.type;
 		console.log("onReady", info);
 		if (wakeWordEngine == "porcupine" && window.porcupineWorker) showLogMessage("Available wake-words", window.porcupineWorker.settings.options.setup.keywords);
@@ -496,9 +499,9 @@
 					}
 				}
 			};
-			//C asks the browser for its rate again: the library stops trying
-			//for the page's lifetime after one refusal (sepia-web-audio.js:556-557).
-			if (document.getElementById("kwsChainSelect").value == "C"){
+			//Each run with a capture rate asks the browser again: the library stops
+			//trying for the page's lifetime after one refusal (sepia-web-audio.js:556-557).
+			if (targetSampleRate){
 				SepiaFW.webAudio.isNativeStreamResamplingSupported = true;
 			}
 		}
@@ -1118,19 +1121,19 @@
 	//SEPIA KWS (sepia-keyword-worker)
 	var KWS_MODEL = "wdtcn-v4-s0-uno";
 	var kwsAvailableKeywords;
-	//Presets for the fields above. 'target' 0 is "Auto" (device rate).
+	//Presets for the fields above: 'target' is the capture rate, 'rate' the resampler's target.
 	var KWS_CHAINS = {
-		A: {target: 0, rate: 48000},
-		B: {target: 0, rate: 16000, quality: 7},
+		A: {target: 48000, rate: 48000},
+		B: {target: 48000, rate: 16000, quality: 7},
 		C: {target: 16000, rate: 16000}
 	};
 	var KWS_CHAIN_NOTES = {
 		"": "Manual: the fields above apply as they are. The KWS takes 16 kHz or a whole multiple of it, "
 			+ "Int16 from the resampler or Float32 without it.",
-		A: "Recommended. The audio context runs at the device rate, the Speex switch at 48000 only converts "
-			+ "to Int16 and the KWS resamples with its own filter. The Speex quality only applies on a 44.1 kHz device.",
-		B: "The Speex switch converts to 16 kHz with speexdsp. Use quality 7 or higher: 5 measurably raises "
-			+ "scores under the threshold and adds detections.",
+		A: "Recommended. The browser is asked for 48 kHz, the Speex switch at 48000 only converts to Int16 and "
+			+ "the KWS resamples with its own filter. The Speex quality only applies if the context runs at another rate.",
+		B: "The browser is asked for 48 kHz as in A, and the Speex switch converts to 16 kHz with speexdsp. "
+			+ "Use quality 7 or higher: 5 measurably raises scores under the threshold and adds detections.",
 		C: "Not recommended, for comparison only. The browser converts to 16 kHz when it creates the audio context. "
 			+ "The quality of that resampler is unknown, and echo cancellation, for example, often causes problems "
 			+ "at a native 16 kHz. If the browser does not give 16 kHz, the log says so."

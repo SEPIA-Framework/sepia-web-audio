@@ -132,15 +132,16 @@
 	var MODEL = "wdtcn-v4-s0-uno";
 	var KWS_FOLDER = "src/modules/sepia-kws/";
 
-	//The rate each chain hands to the worker, and whether the AudioContext is
-	//asked for that rate (the library's "native resampling"). A and B run the
-	//context at the device rate, as the client does.
+	//'capture' is the rate the browser is asked for, for the audio context and
+	//the microphone (the processor's 'targetSampleRate' with native resampling
+	//on); 'rate' is what the Speex switch hands to the worker. A and B ask for
+	//48 kHz, as the client does, C for 16 kHz.
 	//Only B resamples with speexdsp by design, so only B shows the quality
-	//field. A uses DEFAULT_RESAMPLE_QUALITY on a 44.1 kHz device.
+	//field. A uses DEFAULT_RESAMPLE_QUALITY when the context does not run at 48 kHz.
 	var CHAINS = {
-		A: {rate: 48000, nativeResampling: false, speexResampling: false},
-		B: {rate: 16000, nativeResampling: false, speexResampling: true},
-		C: {rate: 16000, nativeResampling: true, speexResampling: false}
+		A: {capture: 48000, rate: 48000, speexResampling: false},
+		B: {capture: 48000, rate: 16000, speexResampling: true},
+		C: {capture: 16000, rate: 16000, speexResampling: false}
 	};
 
 	//A minimal module that only validates with WASM SIMD, as in the KWS
@@ -162,11 +163,12 @@
 
 	var DEFAULT_RESAMPLE_QUALITY = 7;
 	var CHAIN_NOTES = {
-		A: "Default. The audio context runs at the device rate, usually 48 kHz. The Speex switch only "
-			+ "converts to Int16 and the KWS resamples with its own filter. On a 44.1 kHz device the "
-			+ "switch first raises the rate to 48 kHz with speexdsp, at quality " + DEFAULT_RESAMPLE_QUALITY + ".",
-		B: "The Speex switch converts to 16 kHz with speexdsp. Use quality 7 or higher: 5 measurably "
-			+ "raises scores under the threshold and adds detections.",
+		A: "Default. The page asks the browser for 48 kHz, for the audio context and the microphone. "
+			+ "The Speex switch only converts to Int16 and the KWS resamples with its own filter. If the "
+			+ "browser runs the context at another rate, the switch first converts it to 48 kHz with "
+			+ "speexdsp, at quality " + DEFAULT_RESAMPLE_QUALITY + ".",
+		B: "The page asks for 48 kHz as in A, and the Speex switch converts to 16 kHz with speexdsp. "
+			+ "Use quality 7 or higher: 5 measurably raises scores under the threshold and adds detections.",
 		C: "Not recommended, for comparison only. The browser converts to 16 kHz when it creates the "
 			+ "audio context. The quality of that resampler is unknown and was not measured, and running "
 			+ "the whole capture at 16 kHz can hurt other processing too: echo cancellation, for example, "
@@ -374,6 +376,7 @@
 		if (lastInfo.ctx){
 			lines.push("chain: " + lastInfo.ctx.chain
 				+ " | context rate: " + lastInfo.ctx.sampleRate
+				+ " | mic rate: " + (lastInfo.ctx.micSampleRate || "n/a")
 				+ " | wasm: " + lastInfo.ctx.wasm + " (probe: SIMD " + (hasWasmSimd? "yes" : "no") + ")");
 		}
 		if (lastInfo.mic){
@@ -458,13 +461,13 @@
 			modelFile: {type: 2, path: KWS_FOLDER + MODEL + ".kws"}
 		};
 
-		//A and B keep the context at the device rate so that B really measures
-		//speexdsp. C asks the browser for 16 kHz. The library remembers for the
-		//page's lifetime that native resampling "failed" once any run had a
-		//context rate other than its target (sepia-web-audio.js:557) - which A
-		//and B do on purpose - so C resets that before it tries.
-		SepiaFW.webAudio.tryNativeStreamResampling = chain.nativeResampling;
-		if (chain.nativeResampling) SepiaFW.webAudio.isNativeStreamResamplingSupported = true;
+		//Every chain asks the browser for its capture rate, for the context and
+		//the microphone, instead of leaving it to the library's defaults. The
+		//library remembers for the page's lifetime that this "failed" once any
+		//run had a context rate other than its target (sepia-web-audio.js:557),
+		//so each run asks again.
+		SepiaFW.webAudio.tryNativeStreamResampling = true;
+		SepiaFW.webAudio.isNativeStreamResamplingSupported = true;
 
 		var switchModule = {
 			name: "speex-resample-switch",
@@ -515,14 +518,14 @@
 		scoresElement.textContent = "-";
 		scoreRows = [];
 		setState("loading ...");
-		addMessage("Creating processor", {chain: chainId, rate: chain.rate, nativeResampling: chain.nativeResampling, wasm: wasmFile, keywords: keywords.map(function(k){ return k.name; })});
+		addMessage("Creating processor", {chain: chainId, capture: chain.capture, rate: chain.rate, wasm: wasmFile, keywords: keywords.map(function(k){ return k.name; })});
 
 		rec = new SepiaFW.webAudio.Processor({
 			onaudiostart: function(info){ setState("running", "listening"); },
 			onaudioend: function(info){ setState("ready"); },
 			onrelease: function(info){ setState("released"); addMessage("Released"); },
 			onerror: function(err){ addMessage("ERROR - Processor", err); console.error("onerror", err); },
-			targetSampleRate: chain.rate,
+			targetSampleRate: chain.capture,
 			modules: modules,
 			startSuspended: true,
 			initializerTimeout: 15000	//the first create also loads about 2 MB of model and WASM
@@ -530,6 +533,7 @@
 			lastInfo.ctx = {
 				chain: chainId,
 				sampleRate: msg.inputSampleRate,
+				micSampleRate: trackSampleRate(rec),
 				wasm: wasmFile
 			};
 			lastInfo.mic = {
@@ -541,8 +545,13 @@
 			addMessage("Processor ready", {inputSampleRate: msg.inputSampleRate, source: msg.sourceInfo && msg.sourceInfo.type});
 			//If the browser did not give us 16 kHz, the library fell back to the
 			//device rate and the Speex switch converts instead: that would be
-			//chain B under C's name, so stop here.
-			if (chain.nativeResampling && msg.inputSampleRate != chain.rate){
+			//chain B under C's name, so stop here. A and B still work at another
+			//rate, the switch converts it.
+			if (chainId != "C" && msg.inputSampleRate != chain.capture){
+				addMessage("NOTE - The browser runs the audio context at " + msg.inputSampleRate + " Hz, not "
+					+ chain.capture + " Hz: the Speex switch converts it");
+			}
+			if (chainId == "C" && msg.inputSampleRate != chain.capture){
 				var refusedRate = msg.inputSampleRate;
 				addMessage("ERROR - Native " + chain.rate + " Hz did not work, the context runs at " + refusedRate + " Hz");
 				releaseProcessor();
@@ -597,6 +606,16 @@
 		note.textContent = CHAIN_NOTES[chainId];
 		note.className = "note" + (chainId == "C"? " warning" : "");
 		document.getElementById("kwsResampleQualityGroup").style.display = CHAINS[chainId].speexResampling? "" : "none";
+	}
+
+	//The microphone track's own rate. The library reports the context's rate as
+	//'sourceInfo.settings.sampleRate', so it is read from the track.
+	function trackSampleRate(processor){
+		try {
+			return processor.source.mediaStream.getAudioTracks()[0].getSettings().sampleRate;
+		}catch (err){
+			return undefined;
+		}
 	}
 
 	//Mark the processing options this browser cannot set at all.
