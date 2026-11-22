@@ -34,7 +34,7 @@
 			<option value="" selected>Auto</option>
 			<option value="8000">8000</option>
 			<option value="16000">16000</option>
-			<option value="44000">44100</option>
+			<option value="44100">44100</option>
 			<option value="48000">48000</option>
 			<option value="96000">96000</option>
 		</select>
@@ -68,7 +68,7 @@
 		<label><b>Resampler (Speex WASM)</b></label>
 		<div><label>Sample-Rate:</label><input id="resamplerSampleRate" class="small" value="16000" onchange="setResamplerSampleRate(this);" placeholder="16000"></div>
 		<div><label>Buffer-Size:</label><input id="resamplerBufferSize" class="small" value="512"></div>
-		<div><label>Quality:</label><input id="resampleQuality" class="small" value="3" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)"></div>
+		<div><label>Quality:</label><input id="resampleQuality" class="small" value="7" onchange="setResampleQuality(this);" placeholder="0-10 (0: fastest, 10: best)"></div>
 		<div id="resamplerGainBox" class="slidecontainer" style="display: none;">
 			<label>Gain:</label><input id="resamplerGain" type="range" min="1" max="50" step="1" value="1" class="slider"><input type="number" id="resamplerGainShow" class="small">
 		</div>

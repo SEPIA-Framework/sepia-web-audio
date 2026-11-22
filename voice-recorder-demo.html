@@ -116,7 +116,7 @@
 			SepiaVoiceRecorder.create({
 				//fileUrl: "test-sounds/chatter_counting.ogg",		//alternative source?
 				targetSampleRate: 16000,	//this is the default for voice recorder
-				resampleQuality: 4,			//1 [fastest] - 10 [best quality]
+				resampleQuality: 7,			//1 [fastest] - 10 [best quality]
 				gain: +gainNode.value,
 				recordingLimitMs: 30000,	//Total recording limit ms (use to limit WAV size for example)
 				vad: {mode: 3, maxSequenceTime: 5000}, 	//Switch VAD module on/off - Boolean or options object
