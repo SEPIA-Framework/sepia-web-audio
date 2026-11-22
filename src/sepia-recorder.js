@@ -146,7 +146,8 @@
 	//recorder processor:
 	
 	var sepiaWebAudioProcessor;
-	var targetSampleRate = 16000;
+	var targetSampleRate = 16000;		//what the resampler hands to the modules
+	var captureSampleRate = 48000;		//what the browser is asked for, for audio context and microphone
 	var resamplerBufferSize = 512;
 	
 	async function createRecorder(options){
@@ -154,6 +155,7 @@
 		else {
 			//overwrite shared defaults?
 			if (options.targetSampleRate) targetSampleRate = options.targetSampleRate;
+			if (options.captureSampleRate) captureSampleRate = options.captureSampleRate;
 			if (options.resamplerBufferSize) resamplerBufferSize = options.resamplerBufferSize;
 		}
 		var useRecognitionModule = !!options.asr;
@@ -166,7 +168,7 @@
 			//customSourceNode: file audio buffer
 			try {
 				customSource = await SepiaFW.webAudio.createFileSource(options.fileUrl, {
-					targetSampleRate: targetSampleRate
+					targetSampleRate: captureSampleRate
 				});
 			}catch (err){
 				SepiaVoiceRecorder.onProcessorInitError(err);
@@ -182,7 +184,7 @@
 				options: {
 					processorOptions: {
 						targetSampleRate: targetSampleRate,
-						resampleQuality: options.resampleQuality || 4, 	//1 [low] - 10 [best],
+						resampleQuality: options.resampleQuality || 7, 	//1 [low] - 10 [best],
 						bufferSize: resamplerBufferSize,
 						passThroughMode: 0,		//0: none, 1: original (float32), 2: 16Bit PCM - NOTE: NOT resampled
 						calculateRmsVolume: true,
@@ -306,7 +308,7 @@
 			onaudioend: SepiaVoiceRecorder.onAudioEnd,
 			onrelease: SepiaVoiceRecorder.onProcessorRelease,
 			onerror: SepiaVoiceRecorder.onProcessorError,
-			targetSampleRate: targetSampleRate,
+			targetSampleRate: captureSampleRate,
 			//targetBufferSize: 512,
 			modules: activeModules,
 			destinationNode: undefined,		//defaults to: new "blind" destination (mic) or audioContext.destination (stream)

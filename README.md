@@ -61,6 +61,7 @@ SepiaVoiceRecorder.onWaveEncoderAudioData = function(waveData){
 //create the recorder:
 SepiaVoiceRecorder.create({
 	targetSampleRate: 16000,	//16kHz is actually the voice recorder default
+	captureSampleRate: 48000,	//asked from the browser (context and microphone), the resampler converts it to 'targetSampleRate' - 48kHz is the default
 	gain: 3.0, 					//we can amplify the signal using the gain option
 	recordingLimitMs: 30000, 	//Total recording limit ms
 });
@@ -194,7 +195,7 @@ var resampler = {
 			processorOptions: {
 				targetSampleRate: targetSampleRate,
 				bufferSize: bufferSize,
-				resampleQuality: 5,			//1 (low quality) - 10 (best quality)
+				resampleQuality: 7,			//1 (low quality) - 10 (best quality)
 				calculateRmsVolume: true,	//the resampler can calculate RMS signal volume
 				gain: 1.0,					//we can amplify the signal here
 				passThroughMode: 0			//0: none - only switch in our pipe atm
