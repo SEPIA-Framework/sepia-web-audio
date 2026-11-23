@@ -1169,7 +1169,8 @@
 			box.innerHTML = "";
 			kwsAvailableKeywords.forEach(function(kw){
 				var label = document.createElement("label");
-				label.textContent = kw.name;
+				label.textContent = kw.ui_name || kw.name;		//the list carries ui names since 0.1.3
+				label.title = kw.name + (kw.speaker? (", speaker: " + kw.speaker) : "");
 				var cb = document.createElement("input");
 				cb.type = "checkbox";
 				cb.checked = !defaults || defaults.indexOf(kw.name) >= 0;
@@ -1244,7 +1245,7 @@
 			showLogMessage("SEPIA KWS - ready", {captureSampleRate: mi.captureSampleRate, resampling: mi.resampling,
 				inputIsFloat32: mi.inputIsFloat32, simd: mi.simd, fetched: mi.fetched, keywords: mi.keywords, sensitivity: mi.sensitivity, thresholds: mi.thresholds});
 		}else if (data.keyword){
-			showLogMessage("Wake-word detected", {keyword: data.keyword, score: data.score, threshold: data.threshold});
+			showLogMessage("Wake-word detected", {keyword: data.keyword, uiName: data.uiName, score: data.score, threshold: data.threshold});
 		}else if (data.moduleEvent && data.kwsExposure){
 			var ex = data.kwsExposure;
 			showKwsPerformance(ex);

@@ -225,7 +225,8 @@
 			box.innerHTML = "";
 			availableKeywords.forEach(function(kw){
 				var label = document.createElement("label");
-				label.textContent = kw.name;
+				label.textContent = kw.ui_name || kw.name;		//the list carries ui names since 0.1.3
+				label.title = kw.name + (kw.speaker? (", speaker: " + kw.speaker) : "");
 				var cb = document.createElement("input");
 				cb.type = "checkbox";
 				cb.checked = !defaults || defaults.indexOf(kw.name) >= 0;
@@ -345,8 +346,8 @@
 			buildScoreRows(data.moduleInfo);
 			showInfo();
 		}else if (data.keyword){
-			addMessage("DETECTION", {keyword: data.keyword, score: data.score, threshold: data.threshold, at_seconds: data.at_seconds});
-			detectionElement.textContent = data.keyword + " (score " + data.score + ", threshold " + data.threshold + ")";
+			addMessage("DETECTION", {keyword: data.keyword, uiName: data.uiName, score: data.score, threshold: data.threshold, at_seconds: data.at_seconds});
+			detectionElement.textContent = (data.uiName || data.keyword) + " (score " + data.score + ", threshold " + data.threshold + ")";
 			detectionElement.className = "hit";
 			setTimeout(function(){ detectionElement.className = ""; }, 600);
 		}else if (data.moduleEvent && data.kwsExposure){
